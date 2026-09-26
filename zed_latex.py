@@ -470,6 +470,8 @@ def main():
     except KeyboardInterrupt:
         pass
     except Exception as error:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         parser.exit(1, f"{error}\n")
 
 

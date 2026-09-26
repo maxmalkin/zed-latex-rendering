@@ -34,7 +34,7 @@ jobs:
           --collect-all nbconvert --collect-all nbformat --collect-all mistune
           --collect-all pygls --collect-all jupytext --collect-all pypdfium2
           --collect-all playwright --collect-all pygments
-          --copy-metadata nbconvert --copy-metadata jupytext
+          --copy-metadata nbconvert --copy-metadata jupytext --copy-metadata jupyter_client
           --collect-data jupyterlab_pygments zed_latex.py
       - name: Download Tectonic and package release
         env:
