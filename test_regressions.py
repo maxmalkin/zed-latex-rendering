@@ -1,0 +1,335 @@
+"""Fast regressions: python -m unittest -v test_regressions.
+
+Image transport and LSP behavior use a tiny PNG; check.py and check_bundle.py
+exercise the real compiler, rasterizer, kernels, and frozen release binaries.
+"""
+import base64
+import asyncio
+import io
+import json
+from pathlib import Path
+import tempfile
+import tomllib
+import unittest
+from unittest.mock import AsyncMock, Mock, patch
+from urllib.parse import quote
+
+from lsprotocol import types as lsp
+from PIL import Image
+
+import server
+import zed_latex as renderer
+
+
+def tokens_of_kind(tokens, kind):
+    for token in tokens:
+        if token["type"] == kind:
+            yield token
+        yield from tokens_of_kind(token.get("children", []), kind)
+
+
+class PreviewRegressions(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="zedtex-regression-")
+        self.addCleanup(self.temporary.cleanup)
+        root = Path(self.temporary.name)
+        self.source = root / "source space δ"
+        self.source.mkdir()
+        self.cache = root / "cache"
+        self.addCleanup(patch.stopall)
+        patch.object(renderer, "cache_directory", return_value=self.cache).start()
+        data = io.BytesIO()
+        with Image.new("RGB", (4, 4), "black") as image:
+            image.save(data, format="PNG")
+        self.png = data.getvalue()
+        self.equations = []
+        self.math = Mock(directory=self.source, images={})
+
+        def render(equations):
+            for equation in equations:
+                self.equations.append(equation)
+                self.math.images[equation] = (self.png, 4, 4)
+
+        self.math.render.side_effect = render
+        patch.object(renderer, "Renderer", return_value=self.math).start()
+
+    def preview(self, text):
+        source = self.source / "notes.md"
+        source.write_text(text, encoding="utf-8")
+        result = renderer.preview(source)
+        rendered = result.read_text(encoding="utf-8")
+        tokens, _ = renderer.markdown_parser().parse(rendered)
+        return result, rendered, tokens
+
+    def test_equations_are_embedded_valid_pngs(self):
+        _, _, tokens = self.preview("Inline $x$.\n\n$$\nx\n$$\n")
+        images = list(tokens_of_kind(tokens, "image"))
+        self.assertEqual(len(images), 2)
+        for image in images:
+            url = image["attrs"]["url"]
+            self.assertTrue(url.startswith("data:image/png;base64,"))
+            self.assertEqual(base64.b64decode(url.split(",", 1)[1], validate=True), self.png)
+        self.assertEqual(self.equations, [("x", False), ("x", True)])
+
+    def test_repeated_equations_share_one_reference(self):
+        _, text, tokens = self.preview("$x$ then $x$ then $x$")
+        self.assertEqual(len(list(tokens_of_kind(tokens, "image"))), 3)
+        self.assertEqual(text.count("data:image/png;base64,"), 1)
+
+    def test_preview_can_be_moved_without_sibling_images(self):
+        result, text, _ = self.preview("$x$")
+        moved = Path(self.temporary.name) / "isolated.md"
+        moved.write_bytes(result.read_bytes())
+        tokens, _ = renderer.markdown_parser().parse(moved.read_text())
+        self.assertTrue(next(tokens_of_kind(tokens, "image"))["attrs"]["url"].startswith("data:"))
+        self.assertEqual(list(result.parent.iterdir()), [result])
+        self.assertNotIn(".png)", text)
+
+    def test_local_and_reference_images_embed_once(self):
+        (self.source / "local image.png").write_bytes(self.png)
+        _, text, tokens = self.preview("![direct](local%20image.png)\n\n![ref][pic]\n\n[pic]: local%20image.png")
+        images = list(tokens_of_kind(tokens, "image"))
+        self.assertEqual(len(images), 2)
+        self.assertEqual(images[0]["attrs"]["url"], images[1]["attrs"]["url"])
+        self.assertEqual(text.count("data:image/png;base64,"), 1)
+
+    def test_local_svg_is_embedded_with_svg_mime(self):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><path d="M0 0h4v4H0z"/></svg>'
+        (self.source / "diagram.svg").write_bytes(svg)
+        _, _, tokens = self.preview("![diagram](diagram.svg)")
+        url = next(tokens_of_kind(tokens, "image"))["attrs"]["url"]
+        self.assertTrue(url.startswith("data:image/svg+xml;base64,"))
+        self.assertEqual(base64.b64decode(url.split(",", 1)[1], validate=True), svg)
+
+    def test_encoded_image_path(self):
+        name = "plot # δ.png"
+        (self.source / name).write_bytes(self.png)
+        _, _, tokens = self.preview(f"![plot]({quote(name)})")
+        self.assertTrue(next(tokens_of_kind(tokens, "image"))["attrs"]["url"].startswith("data:"))
+
+    def test_remote_image_url_is_preserved(self):
+        _, _, tokens = self.preview("![remote](https://example.invalid/plot.png)")
+        self.assertEqual(next(tokens_of_kind(tokens, "image"))["attrs"]["url"], "https://example.invalid/plot.png")
+
+    def test_existing_data_image_and_title_are_preserved(self):
+        url = renderer.image_data_url(self.png)
+        _, text, tokens = self.preview(f'![image]({url} "A title")\n\n![again]({url} "A title")')
+        images = list(tokens_of_kind(tokens, "image"))
+        self.assertEqual(len(images), 2)
+        self.assertEqual(images[0]["attrs"], {"url": url, "title": "A title"})
+        self.assertEqual(text.count(url), 1)
+
+    def test_generated_reference_does_not_override_user_link(self):
+        _, text, _ = self.preview("$x$")
+        label = next(line[1:line.index("]:")] for line in text.splitlines() if line.startswith("[zedtex-"))
+        _, _, tokens = self.preview(f"$x$ and [original][{label}]\n\n[{label}]: https://example.invalid/original")
+        self.assertEqual(next(tokens_of_kind(tokens, "link"))["attrs"]["url"], "https://example.invalid/original")
+        self.assertTrue(next(tokens_of_kind(tokens, "image"))["attrs"]["url"].startswith("data:"))
+
+    def test_code_fences_and_inline_code_stay_literal(self):
+        _, text, tokens = self.preview("`$x$`\n\n```tex\n$x$\n$$x$$\n```\n")
+        self.assertIn("`$x$`", text)
+        self.assertIn("$$x$$", text)
+        self.assertFalse(list(tokens_of_kind(tokens, "image")))
+        self.assertFalse(self.equations)
+
+    def test_math_in_tables_lists_and_quotes(self):
+        _, _, tokens = self.preview("| Math |\n|---|\n| $x$ |\n\n- $x$\n\n> $x$\n")
+        self.assertEqual(len(list(tokens_of_kind(tokens, "image"))), 3)
+        for kind in ("table", "list", "block_quote"):
+            self.assertTrue(list(tokens_of_kind(tokens, kind)))
+
+    def test_normal_links_keep_fragments_and_queries(self):
+        _, _, tokens = self.preview("[source](part%20one.tex?q=1#section)")
+        url = next(tokens_of_kind(tokens, "link"))["attrs"]["url"]
+        self.assertTrue(url.endswith("part%20one.tex?q=1#section"))
+        self.assertIn("source%20space", url)
+
+    def test_source_and_repository_are_unchanged(self):
+        original = "# Source\n\n$x$\n"
+        result, _, _ = self.preview(original)
+        self.assertFalse(result.is_relative_to(self.source))
+        self.assertEqual([p.name for p in self.source.iterdir()], ["notes.md"])
+        self.assertEqual((self.source / "notes.md").read_text(), original)
+
+    def test_unchanged_preview_is_not_rewritten(self):
+        result, _, _ = self.preview("$x$")
+        previous = result.stat().st_mtime_ns
+        renderer.preview(self.source / "notes.md")
+        self.assertEqual(result.stat().st_mtime_ns, previous)
+
+    def test_obsolete_sibling_assets_are_removed(self):
+        result, _, _ = self.preview("$x$")
+        old = result.parent / "old.png"
+        old.write_bytes(self.png)
+        assets = result.parent / "assets"
+        assets.mkdir()
+        (assets / "old.svg").write_text("obsolete")
+        renderer.preview(self.source / "notes.md")
+        self.assertFalse(old.exists())
+        self.assertFalse(list(assets.iterdir()))
+
+    def test_preamble_fails_before_compiler_or_cache_creation(self):
+        preamble = self.source / "latex-preamble.tex"
+        preamble.write_text(r"\usepackage{amsmath}")
+        with patch.object(renderer, "compile_tex") as compile_tex:
+            with self.assertRaisesRegex(ValueError, "not a standalone document"):
+                renderer.preview(preamble)
+            compile_tex.assert_not_called()
+        self.assertFalse(self.cache.exists())
+
+
+class ActionRegressions(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="zedtex-actions-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.addCleanup(patch.stopall)
+        patch.object(renderer, "cache_directory", return_value=self.root / "cache").start()
+        patch.object(server, "active_previews", set()).start()
+        patch.object(server, "pending_saves", {}).start()
+
+    def actions(self, name):
+        uri = (self.root / name).as_uri()
+        point = lsp.Position(line=0, character=0)
+        return server.code_actions(lsp.CodeActionParams(
+            text_document=lsp.TextDocumentIdentifier(uri=uri), range=lsp.Range(point, point),
+            context=lsp.CodeActionContext(diagnostics=[])))
+
+    def test_markdown_and_tex_offer_preview(self):
+        for filename in ("file.md", "file.MD", "paper.tex", "paper.TEX"):
+            with self.subTest(filename=filename):
+                actions = self.actions(filename)
+                self.assertEqual(len(actions), 1)
+                self.assertEqual(actions[0].command.command, "latex.preview")
+                self.assertEqual(actions[0].command.arguments, [(self.root / filename).as_uri()])
+
+    def test_notebook_offers_both_exports(self):
+        self.assertEqual([action.command.command for action in self.actions("demo.ipynb")],
+                         ["latex.export.html", "latex.export.pdf"])
+
+    def test_python_offers_exports_and_helper(self):
+        actions = self.actions("demo.py")
+        self.assertEqual(len(actions), 3)
+        self.assertEqual([action.command.command for action in actions[:2]], ["latex.export.html", "latex.export.pdf"])
+        self.assertIsNotNone(actions[2].edit)
+
+    def test_preamble_and_unsupported_files_have_no_preview_action(self):
+        for filename in ("latex-preamble.tex", "file.txt", "package.sty"):
+            with self.subTest(filename=filename):
+                self.assertEqual(self.actions(filename), [])
+
+    def test_generated_previews_have_no_recursive_action(self):
+        for filename in ("cache/documents/test/preview.md", "old.md.zed-output/preview.md"):
+            with self.subTest(filename=filename):
+                self.assertEqual(self.actions(filename), [])
+
+    def test_stop_action_is_available_only_for_active_preview(self):
+        path = (self.root / "file.md").resolve()
+        server.active_previews.add(path)
+        self.assertEqual([a.command.command for a in self.actions("file.md")], ["latex.preview", "latex.stop"])
+        server.stop(path.as_uri())
+        self.assertEqual(len(self.actions("file.md")), 1)
+
+    def test_non_file_uri_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "local file"):
+            server.source_path("untitled:notes.md")
+
+    def test_notebook_file_type_and_server_mapping(self):
+        root = Path(__file__).parent
+        manifest = tomllib.loads((root / "extension.toml").read_text())
+        config = tomllib.loads((root / "languages/jupyter-notebook/config.toml").read_text())
+        language_server = manifest["language_servers"]["latex-rendering"]
+        self.assertIn("ipynb", config["path_suffixes"])
+        self.assertEqual(config["grammar"], "json")
+        self.assertIn(config["name"], language_server["languages"])
+        self.assertEqual(language_server["language_ids"][config["name"]], "json")
+
+
+class SaveAndOpenRegressions(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="zedtex-save-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.source = self.root / "notes.md"
+        self.source.write_text("$x$")
+        self.addCleanup(patch.stopall)
+        patch.object(renderer, "cache_directory", return_value=self.root / "cache").start()
+        patch.object(server, "active_previews", {self.source}).start()
+        patch.object(server, "pending_saves", {}).start()
+        patch.object(server, "render_lock", asyncio.Lock()).start()
+
+    async def save(self, path=None):
+        await server.saved(lsp.DidSaveTextDocumentParams(
+            text_document=lsp.TextDocumentIdentifier(uri=(path or self.source).as_uri())))
+
+    async def test_burst_of_saves_builds_once(self):
+        with patch.object(server, "build", new_callable=AsyncMock) as build:
+            for _ in range(5):
+                await self.save()
+            await asyncio.sleep(0.4)
+            build.assert_awaited_once_with(self.source.as_uri(), show=False)
+        self.assertFalse(server.pending_saves)
+
+    async def test_preamble_save_rebuilds_active_markdown(self):
+        with patch.object(server, "build", new_callable=AsyncMock) as build:
+            await self.save(self.root / "latex-preamble.tex")
+            await asyncio.sleep(0.4)
+            build.assert_awaited_once_with(self.source.as_uri(), show=False)
+
+    async def test_unrelated_save_does_not_build(self):
+        with patch.object(server, "build", new_callable=AsyncMock) as build:
+            await self.save(self.root / "unrelated.md")
+            await self.save(self.root.parent / "elsewhere.sty")
+            self.assertFalse(server.pending_saves)
+            build.assert_not_called()
+
+    async def test_stop_cancels_pending_rebuild(self):
+        with patch.object(server, "build", new_callable=AsyncMock) as build:
+            await self.save()
+            server.stop(self.source.as_uri())
+            await asyncio.sleep(0.4)
+            build.assert_not_called()
+
+    async def test_save_during_build_triggers_one_followup(self):
+        started = asyncio.Event()
+        resume = asyncio.Event()
+
+        async def build(*args, **kwargs):
+            started.set()
+            await resume.wait()
+
+        with patch.object(server, "build", side_effect=build) as mocked:
+            await self.save()
+            await asyncio.wait_for(started.wait(), 2)
+            await self.save()
+            await self.save()
+            resume.set()
+            await asyncio.sleep(0.4)
+            self.assertEqual(mocked.await_count, 2)
+        self.assertFalse(server.pending_saves)
+
+    async def test_preview_requests_embedded_document(self):
+        result = self.root / "cache" / "preview.md"
+        with patch.object(renderer, "preview", return_value=result), \
+                patch.object(server.server, "window_show_document_async", new_callable=AsyncMock) as show, \
+                patch.object(server.server, "window_show_message"):
+            show.return_value = lsp.ShowDocumentResult(success=True)
+            await server.build(self.source.as_uri())
+            params = show.await_args.args[0]
+            self.assertEqual(params.uri, result.as_uri())
+            self.assertTrue(params.take_focus)
+            self.assertFalse(params.external)
+
+    async def test_failed_document_open_reports_error(self):
+        with patch.object(renderer, "preview", return_value=self.root / "cache" / "preview.md"), \
+                patch.object(server.server, "window_show_document_async", new_callable=AsyncMock) as show, \
+                patch.object(server.server, "window_show_message") as message:
+            show.return_value = lsp.ShowDocumentResult(success=False)
+            await server.build(self.source.as_uri())
+            self.assertEqual(message.call_args.args[0].type, lsp.MessageType.Error)
+            self.assertIn("could not open", message.call_args.args[0].message)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

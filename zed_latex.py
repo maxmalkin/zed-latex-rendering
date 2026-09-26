@@ -102,12 +102,12 @@ def compile_tex(source, directory, output, *, document=None):
     return pdf
 
 
-def page_png(pdf, index, scale, pixel_limit=16_000_000, *, transparent=False):
+def page_png(pdf, index, scale, pixel_limit=16_000_000):
     with closing(pdf[index]) as page:
         width, height = page.get_size()
         if width * height * scale * scale > pixel_limit:
             raise RuntimeError(f"Page raster exceeds {pixel_limit} pixels.")
-        bitmap = page.render(scale=scale, fill_color=(0, 0, 0, 0) if transparent else (255, 255, 255, 255))
+        bitmap = page.render(scale=scale)
         try:
             with bitmap.to_pil() as image:
                 output = io.BytesIO()
@@ -164,7 +164,7 @@ class Renderer:
         for equation in dict.fromkeys(equations):
             if equation in self.images:
                 continue
-            key = json.dumps([equation, self.preamble, self.signature, "raster-v2-transparent"])
+            key = json.dumps([equation, self.preamble, self.signature, "raster-v1"])
             path = self.cache / (hashlib.sha256(key.encode()).hexdigest() + ".png")
             cache_paths[equation] = path
             if path.exists():
@@ -188,7 +188,7 @@ class Renderer:
                     if len(pdf) != len(batch):
                         raise ValueError("Each equation must produce exactly one page.")
                     for index, equation in enumerate(batch):
-                        self.images[equation] = page_png(pdf, index, 2, pixel_limit=1_000_000, transparent=True)
+                        self.images[equation] = page_png(pdf, index, 2, pixel_limit=1_000_000)
                         write_changed(cache_paths[equation], self.images[equation][0])
         cached = sorted(self.cache.glob("*.png"), key=lambda path: path.stat().st_mtime, reverse=True)
         size = 0
@@ -227,11 +227,12 @@ class ImageMarkdown(MarkdownRenderer):
     def image(self, token, state):
         if token["attrs"]["url"].startswith("data:"):
             # Store each embedded image once, even when an equation is repeated.
-            label = "zedtex-" + hashlib.sha256(json.dumps(token["attrs"], sort_keys=True).encode()).hexdigest()
+            attrs = {key: token["attrs"][key] for key in ("url", "title") if token["attrs"].get(key) is not None}
+            label = "zedtex-" + hashlib.sha256(json.dumps(attrs, sort_keys=True).encode()).hexdigest()
             references = state.env["ref_links"]
-            while label.upper() in references and references[label.upper()]["url"] != token["attrs"]["url"]:
+            while label.upper() in references and any(references[label.upper()].get(key) != attrs.get(key) for key in ("url", "title")):
                 label += "-image"
-            references[label.upper()] = {**token["attrs"], "label": label}
+            references[label.upper()] = {**attrs, "label": label}
             token = {**token, "label": label}
         return super().image(token, state)
 

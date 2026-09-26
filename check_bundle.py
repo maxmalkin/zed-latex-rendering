@@ -1,5 +1,7 @@
 """Check the actual frozen executable, including the LSP wire protocol."""
 import json
+import base64
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -12,6 +14,13 @@ binary = Path("dist/latex-rendering/latex-rendering" + (".exe" if sys.platform =
 examples = Path("examples").resolve()
 subprocess.run([binary, "preview", examples / "paper.tex"], check=True, timeout=180)
 subprocess.run([binary, "preview", examples / "notes.md"], check=True, timeout=180)
+for source in (examples / "paper.tex", examples / "notes.md"):
+    text = (output_directory(source) / "preview.md").read_text(encoding="utf-8")
+    images = re.findall(r"data:image/png;base64,([A-Za-z0-9+/=]+)", text)
+    assert images and all(base64.b64decode(data, validate=True).startswith(b"\x89PNG") for data in images)
+    assert not re.search(r"!\[[^\]]*\]\([^)]*\.png\)", text), "Preview depends on sibling image files"
+preamble = subprocess.run([binary, "preview", examples / "latex-preamble.tex"], capture_output=True, timeout=30)
+assert preamble.returncode != 0 and b"not a standalone document" in preamble.stderr
 png = subprocess.run([binary, "math", "--directory", examples], input=b"\\LocalSet", capture_output=True, check=True, timeout=180)
 assert png.stdout.startswith(b"\x89PNG")
 with tempfile.TemporaryDirectory() as temporary:
@@ -46,23 +55,31 @@ try:
     send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"processId": None, "rootUri": examples.as_uri(), "capabilities": {}}})
     response = read()
     assert response["result"]["capabilities"]["codeActionProvider"]
+    commands = response["result"]["capabilities"]["executeCommandProvider"]["commands"]
     send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
-    send({"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": (examples / "paper.tex").as_uri()}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": []}}})
-    response = read()
-    assert any(action["command"]["command"] == "latex.preview" for action in response["result"])
-    send({"jsonrpc": "2.0", "id": 4, "method": "workspace/executeCommand", "params": {"command": "latex.preview", "arguments": [(examples / "paper.tex").as_uri()]}})
-    opened = False
-    while True:
+    for request_id, (name, expected) in enumerate([
+        ("paper.tex", ["latex.preview"]), ("notes.md", ["latex.preview"]),
+        ("notebook.ipynb", ["latex.export.html", "latex.export.pdf"]),
+        ("latex-preamble.tex", []),
+    ], 10):
+        send({"jsonrpc": "2.0", "id": request_id, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": (examples / name).as_uri()}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": []}}})
         response = read()
-        if response.get("method") == "window/showDocument":
-            assert response["params"]["uri"].endswith("page-001.png")
-            opened = True
-            send({"jsonrpc": "2.0", "id": response["id"], "result": {"success": True}})
-        elif response.get("id") == 4:
-            assert "error" not in response and opened, response
-            break
-        elif response.get("method") == "window/showMessage":
-            assert response["params"]["type"] != 1, response
+        assert [action["command"]["command"] for action in response["result"]] == expected
+        assert all(command in commands for command in expected), "Zed filters out unadvertised commands"
+    for request_id, (name, opened_name) in enumerate([("paper.tex", "page-001.png"), ("notes.md", "preview.md")], 20):
+        send({"jsonrpc": "2.0", "id": request_id, "method": "workspace/executeCommand", "params": {"command": "latex.preview", "arguments": [(examples / name).as_uri()]}})
+        opened = False
+        while True:
+            response = read()
+            if response.get("method") == "window/showDocument":
+                assert response["params"]["uri"].endswith(opened_name)
+                opened = True
+                send({"jsonrpc": "2.0", "id": response["id"], "result": {"success": True}})
+            elif response.get("id") == request_id:
+                assert "error" not in response and opened, response
+                break
+            elif response.get("method") == "window/showMessage":
+                assert response["params"]["type"] != 1, response
     send({"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": None})
     response = read()
     while "id" not in response:

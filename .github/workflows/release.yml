@@ -28,6 +28,8 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m pip install --no-cache-dir . pyinstaller
+      - name: Check image transport and language-server regressions
+        run: python -m unittest -v test_regressions
       - name: Package native server
         run: >-
           python -m PyInstaller --noconfirm --clean --onedir --name latex-rendering
@@ -42,7 +44,14 @@ jobs:
           BUNDLE_PLATFORM: ${{ matrix.platform }}
         run: python package_bundle.py
       - name: Register test computation kernel
-        run: python -m ipykernel install --user --name zedtex-test
+        run: |
+          python -m ipykernel install --user --name zedtex-test
+          python -m ipykernel install --user --name python3
+      - name: Check real rendering, incremental rebuilds, and notebook execution
+        timeout-minutes: 15
+        env:
+          ZED_LATEX_TECTONIC: ${{ github.workspace }}/dist/latex-rendering/tectonic${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: python check.py
       - name: Test packaged renderer
         timeout-minutes: 15
         run: python check_bundle.py
@@ -64,7 +73,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create backend-v0.1.1 release/*.zip
+          gh release create backend-v0.1.2 release/*.zip
           --target "$GITHUB_SHA"
-          --title "Renderer backend 0.1.1"
-          --notes "Native renderer bundles downloaded automatically by the Zed language-server extension. Registry publication is separate."
+          --title "Renderer backend 0.1.2"
+          --notes "Fixes missing preview images over WSL/SSH with embedded, deduplicated images. Preamble files are configuration rather than standalone previews. Includes cross-platform regression, incremental rendering, notebook execution, and frozen LSP checks. Registry publication is separate."

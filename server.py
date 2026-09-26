@@ -77,7 +77,9 @@ async def build(uri, kind=None, show=True):
                 if source.suffix.lower() == ".tex":
                     result = result.parent / "page-001.png"
         if show:
-            await server.window_show_document_async(lsp.ShowDocumentParams(uri=result.as_uri(), take_focus=True, external=bool(kind)))
+            opened = await server.window_show_document_async(lsp.ShowDocumentParams(uri=result.as_uri(), take_focus=True, external=bool(kind)))
+            if not opened.success:
+                raise RuntimeError(f"Zed could not open the generated file: {result}")
         if show:
             server.window_show_message(lsp.ShowMessageParams(type=lsp.MessageType.Info, message=f"Rendered {result.name}"))
     except Exception as error:

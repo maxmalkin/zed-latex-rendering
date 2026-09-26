@@ -103,7 +103,7 @@ def check():
         assert urls.count(local_url) == 2 and text.count(local_url) == 1, "Repeated local image was not deduplicated"
         for url in set(urls) - {local_url}:
             with Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1], validate=True))) as image:
-                assert image.mode == "RGBA" and image.getchannel("A").getextrema() == (0, 255)
+                assert image.format == "PNG" and image.convert("L").getextrema()[0] < 255
         assert list(rendered.parent.iterdir()) == [rendered], "Preview should not depend on sibling assets"
         assert tools.output_directory(directory / "subfolder" / "sample.md") != rendered.parent
         with patch.object(tools, "compile_tex", side_effect=AssertionError("Cached math recompiled")):

@@ -20,6 +20,8 @@ For a saved `.tex` or `.md` file, press **Ctrl+Shift+P**, run **editor: toggle c
 
 Image previews do not provide PDF text selection, SyncTeX, or native multi-page controls. The real PDF remains available separately. Generated copies are disposable; source documents are preserved.
 
+Preview images are embedded as data URLs. Zed opens generated files outside the project as individual worktrees, so relative sibling image paths can fail over WSL/SSH. Shared Markdown references keep repeated images from duplicating their encoded payload. Relative source PNG/SVG images are embedded too; ordinary links still point back to the source directory. Equation compilation remains incremental.
+
 ## Packages
 
 TeX documents use their own preambles. For Markdown and notebook equations, put `latex-preamble.tex` beside the source:
@@ -31,6 +33,8 @@ TeX documents use their own preambles. For Markdown and notebook equations, put 
 ```
 
 Local `.sty` files resolve from that directory. This replaces the default amsmath/amssymb and boldmath preamble. Tectonic uses XeTeX; external shell commands and packages requiring other engines are unsupported.
+
+`latex-preamble.tex` is not a standalone TeX document and has no build-preview action. The CLI rejects it with an explanation before starting TeX. Saving it still rebuilds active previews that depend on it.
 
 ## Jupyter and exports
 
@@ -54,6 +58,10 @@ To use **Install Dev Extension**, install [Rust through rustup](https://rust-lan
 
 Then select the local clone from Zed’s **Install Dev Extension** dialog. If installation fails, use **zed: open log** to see the underlying compiler error. Registry installations download prebuilt extension code and do not require Rust.
 
-`check.py` exercises the renderer with real local packages, preview updates, caching, error retention, and notebook exports. `cargo build --release --target wasm32-wasip2` builds the Zed extension. Native server bundles are built separately for each supported OS/architecture, then downloaded by the extension; they are not bundled into the extension registry archive.
+Run `python -m unittest -v test_regressions` for the 31 fast regressions covering embedded PNG/SVG transport, reference deduplication, escaped paths, Markdown preservation, source cleanliness, notebook recognition, code actions, save coalescing, and opening errors. These run on Linux, Windows, and macOS for pushes and pull requests.
+
+`python check.py` exercises real local TeX packages, changed-page/equation reuse, unchanged-file timestamps, failure retention, and executed notebook HTML/PDF exports. It needs Tectonic and a registered Python Jupyter kernel. Every renderer release runs both suites plus `python check_bundle.py`, which tests the frozen executable and its LSP protocol, on all four supported platform targets. The workflow publishes only after every target passes.
+
+`cargo build --release --target wasm32-wasip2` builds the Zed extension. Native server bundles are built separately for each supported OS/architecture, then downloaded by the extension; they are not bundled into the extension registry archive.
 
 The source is GPL-3.0-or-later; see [LICENSE](LICENSE). Third-party components retain their licenses. Built from the lessons of the [Zed LaTeX fork](https://github.com/maxmalkin/zed), using Tectonic, pypdfium2, Jupyter nbconvert, Mistune, and Playwright.
