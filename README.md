@@ -12,6 +12,8 @@
 
 For `.tex` files, also install **LaTeX** from Zed’s Extensions UI so Zed recognizes the language.
 
+**Updating a dev install:** pull this repository, then select it again with **Install Dev Extension**. Version **0.1.3** downloads the renderer with the WSL/SSH image fix. Run the preview action again to replace an older generated preview.
+
 ## Use
 
 Open a saved document, press **Ctrl+Shift+P**, run **editor: toggle code actions**, then choose:
