@@ -1,5 +1,7 @@
 ![ZedTeX — Markdown source beside its rendered math preview](assets/zedtex.png)
 
+ZedTeX adds LaTeX previews and notebook exports to Zed, with support for real TeX packages.
+
 | File | Result |
 | --- | --- |
 | `.tex` | PDF and page previews inside Zed |
