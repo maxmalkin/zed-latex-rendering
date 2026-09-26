@@ -6,6 +6,7 @@ from contextlib import closing
 import hashlib
 import io
 import json
+import mimetypes
 import os
 import re
 from pathlib import Path
@@ -101,12 +102,12 @@ def compile_tex(source, directory, output, *, document=None):
     return pdf
 
 
-def page_png(pdf, index, scale, pixel_limit=16_000_000):
+def page_png(pdf, index, scale, pixel_limit=16_000_000, *, transparent=False):
     with closing(pdf[index]) as page:
         width, height = page.get_size()
         if width * height * scale * scale > pixel_limit:
             raise RuntimeError(f"Page raster exceeds {pixel_limit} pixels.")
-        bitmap = page.render(scale=scale)
+        bitmap = page.render(scale=scale, fill_color=(0, 0, 0, 0) if transparent else (255, 255, 255, 255))
         try:
             with bitmap.to_pil() as image:
                 output = io.BytesIO()
@@ -163,7 +164,7 @@ class Renderer:
         for equation in dict.fromkeys(equations):
             if equation in self.images:
                 continue
-            key = json.dumps([equation, self.preamble, self.signature, "raster-v1"])
+            key = json.dumps([equation, self.preamble, self.signature, "raster-v2-transparent"])
             path = self.cache / (hashlib.sha256(key.encode()).hexdigest() + ".png")
             cache_paths[equation] = path
             if path.exists():
@@ -187,7 +188,7 @@ class Renderer:
                     if len(pdf) != len(batch):
                         raise ValueError("Each equation must produce exactly one page.")
                     for index, equation in enumerate(batch):
-                        self.images[equation] = page_png(pdf, index, 2, pixel_limit=1_000_000)
+                        self.images[equation] = page_png(pdf, index, 2, pixel_limit=1_000_000, transparent=True)
                         write_changed(cache_paths[equation], self.images[equation][0])
         cached = sorted(self.cache.glob("*.png"), key=lambda path: path.stat().st_mtime, reverse=True)
         size = 0
@@ -214,10 +215,25 @@ class ImageMarkdown(MarkdownRenderer):
         self.render_image = render_image
 
     def inline_math(self, token, state):
-        return self.render_image((token["raw"], False))
+        return self.math_image(token, state, False)
 
     def block_math(self, token, state):
-        return "\n\n" + self.render_image((token["raw"], True)) + "\n\n"
+        return "\n\n" + self.math_image(token, state, True) + "\n\n"
+
+    def math_image(self, token, state, display):
+        return self.image({"attrs": {"url": self.render_image((token["raw"], display))},
+                           "children": [{"type": "text", "raw": "equation"}]}, state)
+
+    def image(self, token, state):
+        if token["attrs"]["url"].startswith("data:"):
+            # Store each embedded image once, even when an equation is repeated.
+            label = "zedtex-" + hashlib.sha256(json.dumps(token["attrs"], sort_keys=True).encode()).hexdigest()
+            references = state.env["ref_links"]
+            while label.upper() in references and references[label.upper()]["url"] != token["attrs"]["url"]:
+                label += "-image"
+            references[label.upper()] = {**token["attrs"], "label": label}
+            token = {**token, "label": label}
+        return super().image(token, state)
 
     def strikethrough(self, token, state):
         return "~~" + self.render_children(token, state) + "~~"
@@ -233,18 +249,11 @@ def convert_markdown(source, renderer, render_image, *, link_directory=None):
             parts = urlsplit(url)
             if url and not parts.scheme and not url.startswith(("/", "#")):
                 path = (renderer.directory / unquote(parts.path)).resolve()
-                # Remote Zed cannot load an image outside the preview's worktree.
+                # LSP opens cache previews as individual files. Remote Zed cannot
+                # resolve their sibling images, but supports embedded data URLs.
                 if image and path.is_file():
-                    stat = path.stat()
-                    key = json.dumps([str(path), stat.st_mtime_ns, stat.st_size])
-                    name = hashlib.sha256(key.encode()).hexdigest()[:20] + path.suffix
-                    asset = link_directory / "assets" / name
-                    if not asset.exists():
-                        asset.parent.mkdir(parents=True, exist_ok=True)
-                        temporary = asset.with_name(asset.name + ".tmp")
-                        shutil.copyfile(path, temporary)
-                        temporary.replace(asset)
-                    attrs["url"] = "assets/" + quote(name)
+                    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+                    attrs["url"] = image_data_url(path.read_bytes(), mime)
                     return
                 try:
                     rebased = Path(os.path.relpath(path, link_directory)).as_posix()
@@ -268,13 +277,21 @@ def output_directory(source):
     return cache_directory() / "documents" / source_key(source)
 
 
+def image_data_url(data, mime="image/png"):
+    return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
+
+
 def preview(source):
     source = Path(source).resolve()
+    if source.name.lower() == "latex-preamble.tex":
+        raise ValueError("latex-preamble.tex configures packages; it is not a standalone document. "
+                         "Preview the Markdown file, export the notebook, or open a complete .tex document beginning with \\documentclass.")
     output = output_directory(source)
     if source.suffix.lower() == ".tex":
         stamp = input_stamp(source.parent)
+        saved_stamp = {"preview_format": 2, "inputs": [list(value) for value in stamp]}
         state = output / "inputs.json"
-        if state.exists() and json.loads(state.read_text()) == [list(value) for value in stamp]:
+        if state.exists() and json.loads(state.read_text()) == saved_stamp:
             print("Unchanged; reusing PDF and pages.", file=sys.stderr, flush=True)
             return output / "preview.md"
         compiled = compile_tex(None, source.parent, output / "build", document=source)
@@ -299,10 +316,7 @@ def preview(source):
                     rendered_pages += 1
                 links.append(f"[{index + 1}]({name})")
                 if not index:
-                    data = (output / name).read_bytes()
-                    # Markdown caches image URLs; native image tabs watch stable filenames.
-                    first_page = "cover-" + hashlib.sha256(data).hexdigest()[:12] + ".png"
-                    write_changed(output / first_page, data)
+                    first_page = image_data_url((output / name).read_bytes())
             # One visible page avoids loading an entire document into Zed's GPU image cache.
             text = (f"# {source.name}\n\nPages: " + " · ".join(links)
                     + f"\n\nPDF: [{pdf_path.name}]({pdf_path.name})\n\n"
@@ -312,15 +326,13 @@ def preview(source):
         for old in list(output.glob("page-*.png")) + list(output.glob("cover-*.png")):
             if old.name not in text:
                 old.unlink()
-        write_changed(state, json.dumps(stamp))
+        write_changed(state, json.dumps(saved_stamp))
         print(f"Rasterized {rendered_pages}/{len(fingerprints)} pages.", file=sys.stderr, flush=True)
     elif source.suffix.lower() == ".md":
         renderer = Renderer(source.parent)
         def image_link(equation):
             data, _, _ = renderer.images[equation]
-            name = hashlib.sha256(data).hexdigest()[:20] + ".png"
-            write_changed(output / name, data)
-            return f"![equation]({name})"
+            return image_data_url(data)
         text = convert_markdown(source.read_text(encoding="utf-8"), renderer, image_link, link_directory=output)
         text = f"<!-- Generated from {source.name}; edit the source file. -->\n\n" + text
         write_changed(output / "preview.md", text)
@@ -382,7 +394,7 @@ def export_notebook(source, kind, *, execute=True):
                 data, _, _ = renderer.images[equation]
                 name = hashlib.sha256(data).hexdigest()[:20] + ".png"
                 cell.setdefault("attachments", {})[name] = {"image/png": base64.b64encode(data).decode("ascii")}
-                return f"![equation](attachment:{name})"
+                return f"attachment:{name}"
             cell.source = convert_markdown(cell.source, renderer, attachment)
         for result in cell.get("outputs", []):
             data = result.get("data", {})

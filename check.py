@@ -1,6 +1,8 @@
 """Run with the installed companion Python; uses real TeX, PDFium, nbconvert and Edge."""
 from pathlib import Path
 from contextlib import closing
+import base64
+import io
 import json
 import os
 import subprocess
@@ -29,6 +31,13 @@ def check():
         directory = Path(temporary)
         (directory / "localmath.sty").write_text(r"\ProvidesPackage{localmath}\newcommand{\LocalSet}{\mathbb{R}}")
         (directory / "latex-preamble.tex").write_text(tools.DEFAULT_PREAMBLE + "\\usepackage{localmath}\n")
+        with patch.object(tools, "compile_tex", side_effect=AssertionError("Preamble compiled as a document")):
+            try:
+                tools.preview(directory / "latex-preamble.tex")
+            except ValueError as error:
+                assert "not a standalone document" in str(error)
+            else:
+                raise AssertionError("Preamble accepted as a document")
         fragment = directory / "part.tex"
         fragment.write_text(r"Local package: $\LocalSet$.")
         document = directory / "sample.tex"
@@ -41,6 +50,7 @@ def check():
         with pypdfium2.PdfDocument(pdf) as parsed:
             assert len(parsed) == 2
         assert len(list(preview.parent.glob("page-*.png"))) == 2
+        assert "data:image/png;base64," in preview.read_text(), "TeX cover relies on sibling image files"
         before = pdf.stat().st_mtime_ns
         with patch.object(tools, "compile_tex", side_effect=AssertionError("Unchanged document recompiled")):
             tools.preview(document)
@@ -81,12 +91,25 @@ def check():
         relative_link = quote(Path(os.path.relpath(fragment, rendered.parent)).as_posix(), safe="/:")
         assert relative_link in text and "$not_math$" in text and "|" in text
         assert "\\LocalSet" not in text and "![equation]" in text
-        assets = list((rendered.parent / "assets").iterdir())
-        assert len(assets) == 1 and assets[0].read_bytes() == (directory / "local image.png").read_bytes()
-        assert text.count("assets/" + assets[0].name) == 2
+        tokens, _ = tools.markdown_parser().parse(text)
+        def image_urls(tokens):
+            for token in tokens:
+                if token["type"] == "image":
+                    yield token["attrs"]["url"]
+                yield from image_urls(token.get("children", []))
+        urls = list(image_urls(tokens))
+        assert len(urls) == 5 and all(url.startswith("data:image/png;base64,") for url in urls)
+        local_url = tools.image_data_url((directory / "local image.png").read_bytes())
+        assert urls.count(local_url) == 2 and text.count(local_url) == 1, "Repeated local image was not deduplicated"
+        for url in set(urls) - {local_url}:
+            with Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1], validate=True))) as image:
+                assert image.mode == "RGBA" and image.getchannel("A").getextrema() == (0, 255)
+        assert list(rendered.parent.iterdir()) == [rendered], "Preview should not depend on sibling assets"
         assert tools.output_directory(directory / "subfolder" / "sample.md") != rendered.parent
         with patch.object(tools, "compile_tex", side_effect=AssertionError("Cached math recompiled")):
+            previous_mtime = rendered.stat().st_mtime_ns
             tools.preview(markdown)
+            assert rendered.stat().st_mtime_ns == previous_mtime, "Unchanged preview was rewritten"
         assert markdown.read_text() == original
         markdown.write_text(original.replace("$x$", "$y$"))
         with patch.object(tools, "compile_tex", wraps=tools.compile_tex) as compile_math:

@@ -32,7 +32,7 @@ Then use **Ctrl+Shift+P → `zedtex` → Enter** to open the action menu. The pa
 
 If nothing opens after installing or reloading the extension, click another line in the original source file to refresh Zed's actions, then retry. If necessary, run **editor: restart language server** and wait for startup before moving the cursor. `.ipynb` files should show **Jupyter Notebook** in the status bar; **JSON** also works. Reload the extension if they still show **Unknown**.
 
-For **Markdown**, the action opens a generated `preview.md` tab. Press **Ctrl+Shift+V in that tab** to see the rendered equations. Run the action once for each source document; subsequent saves refresh its generated preview.
+For **Markdown**, the action opens a generated `preview.md` tab. Press **Ctrl+Shift+V in that tab** to see the rendered equations. Images are embedded, so previews also work across WSL/SSH without access to sibling cache files. Run the action once for each source document; subsequent saves refresh its generated preview.
 
 TeX previews open in Zed’s image viewer. Keep editing your original source file.
 
@@ -48,9 +48,11 @@ TeX files use their own preambles. For Markdown and notebooks, put `latex-preamb
 \boldmath
 ```
 
+`latex-preamble.tex` is configuration, not a document to preview. Preview your Markdown file or a complete TeX document such as [paper.tex](examples/paper.tex), which starts with `\documentclass` and contains `\begin{document}`.
+
 ## Built to stay responsive
 
-Unchanged equations are cached. Saves are coalesced, compilation runs in the background, and pages are rasterized one at a time. TeX may still need a full compile when layout or references change.
+Unchanged equations are cached. Embedded images use shared references so repeated equations are stored once per preview. Saves are coalesced, compilation runs in the background, and pages are rasterized one at a time. TeX may still need a full compile when layout or references change.
 
 **A few limits:** page images are not a native PDF viewer; live Jupyter math uses the helper cell; the helper and kernel must run on the same machine. Raw notebook Markdown cells are rendered during export. Export runs cells in a fresh kernel; install your notebook’s dependencies in that kernel.
 

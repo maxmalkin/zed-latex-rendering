@@ -10,7 +10,7 @@ from pygls.uris import to_fs_path
 import zed_latex as renderer
 
 
-server = LanguageServer("ZedTeX", "0.1.1")
+server = LanguageServer("ZedTeX", "0.1.2")
 active_previews = set()
 render_lock = asyncio.Lock()
 pending_saves = {}
@@ -31,6 +31,8 @@ def code_actions(params):
     try:
         source = source_path(params.text_document.uri)
     except ValueError:
+        return []
+    if source.name.lower() == "latex-preamble.tex":
         return []
     actions = []
     if source.suffix.lower() in (".tex", ".md"):
