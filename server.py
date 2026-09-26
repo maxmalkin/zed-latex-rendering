@@ -25,7 +25,7 @@ def source_path(uri):
     return source
 
 
-@server.feature(lsp.TEXT_DOCUMENT_CODE_ACTION, lsp.CodeActionOptions(code_action_kinds=[lsp.CodeActionKind.Source]))
+@server.feature(lsp.TEXT_DOCUMENT_CODE_ACTION, lsp.CodeActionOptions(code_action_kinds=[lsp.CodeActionKind.Source, lsp.CodeActionKind.RefactorRewrite]))
 def code_actions(params):
     try:
         source = source_path(params.text_document.uri)
@@ -80,23 +80,23 @@ async def build(uri, kind=None, show=True):
 
 
 @server.command("latex.preview")
-async def preview(arguments):
-    await build(arguments[0])
+async def preview(uri: str):
+    await build(uri)
 
 
 @server.command("latex.stop")
-def stop(arguments):
-    active_previews.discard(source_path(arguments[0]))
+def stop(uri: str):
+    active_previews.discard(source_path(uri))
 
 
 @server.command("latex.export.html")
-async def export_html(arguments):
-    await build(arguments[0], "html")
+async def export_html(uri: str):
+    await build(uri, "html")
 
 
 @server.command("latex.export.pdf")
-async def export_pdf(arguments):
-    await build(arguments[0], "pdf")
+async def export_pdf(uri: str):
+    await build(uri, "pdf")
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_SAVE)
