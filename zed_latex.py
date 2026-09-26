@@ -3,6 +3,7 @@
 import argparse
 import base64
 from contextlib import closing
+from functools import cache
 import hashlib
 import io
 import json
@@ -23,6 +24,8 @@ import pypdfium2 as pdfium
 
 
 DEFAULT_PREAMBLE = "\\usepackage{amsmath,amssymb}\n\\boldmath\n"
+MATH_CACHE_BYTES = 64 * 1024 * 1024
+MATH_CACHE_ENTRIES = 4096
 
 
 def cache_directory():
@@ -42,12 +45,31 @@ def source_key(source):
 def write_changed(path, data):
     path = Path(path)
     data = data.encode("utf-8") if isinstance(data, str) else data
-    if path.exists() and path.read_bytes() == data:
-        return
+    try:
+        if path.read_bytes() == data:
+            return
+    except FileNotFoundError:
+        pass
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(data)
-    temporary.replace(path)
+    # Preview and export processes share the math cache. Never share a temp name.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(data)
+        for attempt in range(3):
+            try:
+                temporary.replace(path)
+                break
+            except PermissionError:
+                # Windows may briefly lock the destination during a competing
+                # replace or reader. Retry that race without hiding real errors.
+                if attempt == 2:
+                    raise
+                time.sleep(0.01)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def compiler():
@@ -155,7 +177,7 @@ class Renderer:
         self.preamble = preamble.read_text(encoding="utf-8") if preamble.exists() else DEFAULT_PREAMBLE
         self.images = {}
         self.cache = cache_directory() / "math" / source_key(self.directory)
-        self.signature = json.dumps(input_stamp(self.directory))
+        self.signature = hashlib.sha256(json.dumps(input_stamp(self.directory)).encode()).hexdigest()
 
     def render(self, equations):
         from PIL import Image
@@ -167,11 +189,13 @@ class Renderer:
             key = json.dumps([equation, self.preamble, self.signature, "raster-v1"])
             path = self.cache / (hashlib.sha256(key.encode()).hexdigest() + ".png")
             cache_paths[equation] = path
-            if path.exists():
-                with Image.open(path) as image:
-                    self.images[equation] = (path.read_bytes(), image.width, image.height)
-            else:
+            try:
+                data = path.read_bytes()
+            except FileNotFoundError:
                 missing.append(equation)
+            else:
+                with Image.open(io.BytesIO(data)) as image:
+                    self.images[equation] = (data, image.width, image.height)
         for offset in range(0, len(missing), 32):
             batch = missing[offset:offset + 32]
             source = ("\\documentclass[border=2pt,multi=preview]{standalone}\n"
@@ -190,12 +214,23 @@ class Renderer:
                     for index, equation in enumerate(batch):
                         self.images[equation] = page_png(pdf, index, 2, pixel_limit=1_000_000)
                         write_changed(cache_paths[equation], self.images[equation][0])
-        cached = sorted(self.cache.glob("*.png"), key=lambda path: path.stat().st_mtime, reverse=True)
+        if not missing:
+            return
+        # Only new files can exceed the budget. Cache hits need no directory scan.
+        with os.scandir(self.cache) as entries:
+            cached = []
+            for entry in entries:
+                if entry.name.endswith(".png"):
+                    try:
+                        cached.append((entry.stat(), Path(entry.path)))
+                    except FileNotFoundError:  # Another renderer pruned this entry.
+                        pass
+        cached.sort(key=lambda item: item[0].st_mtime_ns, reverse=True)
         size = 0
-        for index, path in enumerate(cached):
-            size += path.stat().st_size
-            if size > 64 * 1024 * 1024 or index >= 512:
-                path.unlink()
+        for index, (stat, path) in enumerate(cached):
+            size += stat.st_size
+            if size > MATH_CACHE_BYTES or index >= MATH_CACHE_ENTRIES:
+                path.unlink(missing_ok=True)
 
 
 def markdown_parser():
@@ -212,7 +247,9 @@ def math_tokens(tokens):
 class ImageMarkdown(MarkdownRenderer):
     def __init__(self, render_image):
         super().__init__()
-        self.render_image = render_image
+        # Scoped to this conversion; release encoded images when it finishes.
+        self.render_image = cache(render_image)
+        self.image_labels = {}
 
     def inline_math(self, token, state):
         return self.math_image(token, state, False)
@@ -228,11 +265,15 @@ class ImageMarkdown(MarkdownRenderer):
         if token["attrs"]["url"].startswith("data:"):
             # Store each embedded image once, even when an equation is repeated.
             attrs = {key: token["attrs"][key] for key in ("url", "title") if token["attrs"].get(key) is not None}
-            label = "zedtex-" + hashlib.sha256(json.dumps(attrs, sort_keys=True).encode()).hexdigest()
+            key = (attrs["url"], attrs.get("title"))
+            label = self.image_labels.get(key)
             references = state.env["ref_links"]
-            while label.upper() in references and any(references[label.upper()].get(key) != attrs.get(key) for key in ("url", "title")):
-                label += "-image"
-            references[label.upper()] = {**attrs, "label": label}
+            if label is None:
+                label = "zedtex-" + hashlib.sha256(json.dumps(attrs, sort_keys=True).encode()).hexdigest()
+                while label.upper() in references and any(references[label.upper()].get(key) != attrs.get(key) for key in ("url", "title")):
+                    label += "-image"
+                references[label.upper()] = {**attrs, "label": label}
+                self.image_labels[key] = label
             token = {**token, "label": label}
         return super().image(token, state)
 
@@ -245,6 +286,11 @@ def convert_markdown(source, renderer, render_image, *, link_directory=None):
     tokens, state = parser.parse(source)
     renderer.render(math_tokens(tokens))
     if link_directory is not None:
+        @cache
+        def local_image(path):
+            mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            return image_data_url(path.read_bytes(), mime)
+
         def fix_url(attrs, *, image=False):
             url = attrs.get("url", "")
             parts = urlsplit(url)
@@ -253,8 +299,7 @@ def convert_markdown(source, renderer, render_image, *, link_directory=None):
                 # LSP opens cache previews as individual files. Remote Zed cannot
                 # resolve their sibling images, but supports embedded data URLs.
                 if image and path.is_file():
-                    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-                    attrs["url"] = image_data_url(path.read_bytes(), mime)
+                    attrs["url"] = local_image(path)
                     return
                 try:
                     rebased = Path(os.path.relpath(path, link_directory)).as_posix()
@@ -501,6 +546,9 @@ def main():
             export_notebook(args.source, args.to, execute=not args.no_execute)
         else:
             source = args.source.resolve()
+            if not args.watch:
+                preview(source)
+                return
             previous = None
             while True:
                 stamp = (source.stat().st_mtime_ns, input_stamp(source.parent))
@@ -511,12 +559,8 @@ def main():
                     try:
                         preview(source)
                     except Exception as error:
-                        if not args.watch:
-                            raise
                         print(f"Build failed; last successful preview retained: {error}", file=sys.stderr, flush=True)
                     previous = stamp
-                if not args.watch:
-                    break
                 time.sleep(0.75)
     except KeyboardInterrupt:
         pass

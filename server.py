@@ -1,7 +1,9 @@
 """Standard LSP code actions; rendering never runs on Zed's UI thread."""
 import asyncio
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 
 from lsprotocol import types as lsp
 from pygls.lsp.server import LanguageServer
@@ -13,7 +15,26 @@ import zed_latex as renderer
 server = LanguageServer("ZedTeX", "0.1.2")
 active_previews = set()
 render_lock = asyncio.Lock()
+export_lock = asyncio.Lock()
 pending_saves = {}
+
+
+def renderer_command():
+    return [sys.executable] if getattr(sys, "frozen", False) else [sys.executable, str(Path(renderer.__file__).resolve())]
+
+
+def export_in_process(source, kind):
+    # PDFium is not thread-safe. A separate process also releases notebook and
+    # HTML/browser memory after export, while the preview queue stays responsive.
+    with tempfile.TemporaryFile() as log:
+        result = subprocess.run(renderer_command() + ["export", str(source), "--to", kind],
+                                stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        if result.returncode:
+            log.seek(0, 2)
+            log.seek(max(0, log.tell() - 8000))
+            raise RuntimeError(log.read().decode("utf-8", errors="replace") or "Notebook export failed.")
+    return renderer.output_directory(source) / (source.stem + "." + kind)
 
 
 def source_path(uri):
@@ -46,12 +67,11 @@ def code_actions(params):
                             command=lsp.Command(title=title, command=command, arguments=[params.text_document.uri]))
               for title, command in actions]
     if source.suffix.lower() == ".py":
-        executable = [sys.executable] if getattr(sys, "frozen", False) else [sys.executable, str(Path(renderer.__file__).resolve())]
         # The user explicitly invokes this edit. Existing kernels need only their standard IPython.
         helper = ("# %% LaTeX rendering helper (run this cell once)\n"
                   "import subprocess\nfrom IPython.display import Image\n\n"
                   "def tex(source):\n"
-                  f"    command = {executable + ['math', '--directory', str(source.parent)]!r}\n"
+                  f"    command = {renderer_command() + ['math', '--directory', str(source.parent)]!r}\n"
                   "    result = subprocess.run(command, input=source.encode('utf-8'), capture_output=True, timeout=180)\n"
                   "    if result.returncode:\n"
                   "        raise RuntimeError(result.stderr.decode('utf-8', errors='replace'))\n"
@@ -67,10 +87,11 @@ def code_actions(params):
 async def build(uri, kind=None, show=True):
     try:
         source = source_path(uri)
-        async with render_lock:
-            if kind:
-                result = await asyncio.to_thread(renderer.export_notebook, source, kind)
-            else:
+        if kind:
+            async with export_lock:
+                result = await asyncio.to_thread(export_in_process, source, kind)
+        else:
+            async with render_lock:
                 result = await asyncio.to_thread(renderer.preview, source)
                 if show:
                     active_previews.add(source)

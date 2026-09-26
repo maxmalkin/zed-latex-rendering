@@ -5,10 +5,14 @@ exercise the real compiler, rasterizer, kernels, and frozen release binaries.
 """
 import base64
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
+import os
 from pathlib import Path
+import sys
 import tempfile
+from threading import Barrier, Event
 import tomllib
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -72,7 +76,9 @@ class PreviewRegressions(unittest.TestCase):
         self.assertEqual(self.equations, [("x", False), ("x", True)])
 
     def test_repeated_equations_share_one_reference(self):
-        _, text, tokens = self.preview("$x$ then $x$ then $x$")
+        with patch.object(renderer, "image_data_url", wraps=renderer.image_data_url) as encode:
+            _, text, tokens = self.preview("$x$ then $x$ then $x$")
+        self.assertEqual(encode.call_count, 1)
         self.assertEqual(len(list(tokens_of_kind(tokens, "image"))), 3)
         self.assertEqual(text.count("data:image/png;base64,"), 1)
 
@@ -87,7 +93,9 @@ class PreviewRegressions(unittest.TestCase):
 
     def test_local_and_reference_images_embed_once(self):
         (self.source / "local image.png").write_bytes(self.png)
-        _, text, tokens = self.preview("![direct](local%20image.png)\n\n![ref][pic]\n\n[pic]: local%20image.png")
+        with patch.object(renderer, "image_data_url", wraps=renderer.image_data_url) as encode:
+            _, text, tokens = self.preview("![direct](local%20image.png)\n\n![ref][pic]\n\n[pic]: local%20image.png")
+        self.assertEqual(encode.call_count, 1)
         images = list(tokens_of_kind(tokens, "image"))
         self.assertEqual(len(images), 2)
         self.assertEqual(images[0]["attrs"]["url"], images[1]["attrs"]["url"])
@@ -118,6 +126,20 @@ class PreviewRegressions(unittest.TestCase):
         self.assertEqual(len(images), 2)
         self.assertEqual(images[0]["attrs"], {"url": url, "title": "A title"})
         self.assertEqual(text.count(url), 1)
+
+    def test_same_image_with_different_titles_keeps_both(self):
+        url = renderer.image_data_url(self.png)
+        _, _, tokens = self.preview(f'![a]({url} "First")\n\n![b]({url} "Second")\n\n![c]({url} "First")')
+        self.assertEqual([t["attrs"]["title"] for t in tokens_of_kind(tokens, "image")],
+                         ["First", "Second", "First"])
+
+    def test_local_image_change_is_not_hidden_by_encoding_cache(self):
+        image = self.source / "local.png"
+        image.write_bytes(self.png)
+        _, before, _ = self.preview("![a](local.png)")
+        image.write_bytes(self.png + b"changed")
+        _, after, _ = self.preview("![a](local.png)")
+        self.assertNotEqual(before, after)
 
     def test_generated_reference_does_not_override_user_link(self):
         _, text, _ = self.preview("$x$")
@@ -177,6 +199,105 @@ class PreviewRegressions(unittest.TestCase):
                 renderer.preview(preamble)
             compile_tex.assert_not_called()
         self.assertFalse(self.cache.exists())
+
+
+class CacheRegressions(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="zedtex-cache-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve()
+        self.source = self.root / "source"
+        self.source.mkdir()
+        self.addCleanup(patch.stopall)
+        patch.object(renderer, "cache_directory", return_value=self.root / "cache").start()
+        data = io.BytesIO()
+        with Image.new("RGB", (4, 4), "black") as image:
+            image.save(data, format="PNG")
+        self.png = data.getvalue()
+        self.compile = patch.object(renderer, "compile_tex", return_value=self.root / "batch.pdf").start()
+        pdf = patch.object(renderer.pdfium, "PdfDocument").start().return_value.__enter__.return_value
+        pdf.__len__.side_effect = lambda: self.compile.call_args.args[0].count(r"\begin{preview}")
+        self.raster = patch.object(renderer, "page_png", return_value=(self.png, 4, 4)).start()
+
+    def test_600_equations_stay_cached_and_only_changes_compile(self):
+        equations = [(f"x_{i}", True) for i in range(600)]
+        renderer.Renderer(self.source).render(equations)
+        self.assertEqual(self.raster.call_count, 600)
+        self.compile.reset_mock()
+        self.raster.reset_mock()
+        renderer.Renderer(self.source).render(equations)
+        self.compile.assert_not_called()
+        self.raster.assert_not_called()
+        renderer.Renderer(self.source).render(equations[:-1] + [("y", True)])
+        self.compile.assert_called_once()
+        self.raster.assert_called_once()
+
+    def test_cache_hits_read_png_once_and_never_scan_for_eviction(self):
+        equation = ("x", True)
+        renderer.Renderer(self.source).render([equation])
+        math = renderer.Renderer(self.source)
+        reads = []
+        read = Path.read_bytes
+
+        def track(path):
+            reads.append(path)
+            return read(path)
+
+        with patch.object(Path, "read_bytes", track), \
+                patch.object(renderer.os, "scandir", side_effect=AssertionError("Unnecessary cache scan")):
+            math.render([equation])
+            for _ in range(200):
+                math.render([equation])
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(math.images[equation], (self.png, 4, 4))
+
+    def test_disk_cache_remains_bounded_by_bytes_and_count(self):
+        for byte_limit, entry_limit, expected in ((len(self.png) * 2, 4096, 2), (1024 * 1024, 3, 3)):
+            with self.subTest(byte_limit=byte_limit, entry_limit=entry_limit), \
+                    patch.object(renderer, "MATH_CACHE_BYTES", byte_limit), \
+                    patch.object(renderer, "MATH_CACHE_ENTRIES", entry_limit):
+                math = renderer.Renderer(self.source)
+                math.render([(f"x_{byte_limit}_{i}", True) for i in range(10)])
+                files = list(math.cache.glob("*.png"))
+                self.assertEqual(len(files), expected)
+                self.assertLessEqual(sum(p.stat().st_size for p in files), byte_limit)
+                self.assertEqual(len(math.images), 10)
+
+    def test_one_shot_preview_has_no_watch_delay_or_extra_scan(self):
+        source = self.source / "notes.md"
+        source.write_text("$x$")
+        with patch.object(sys, "argv", ["zedtex", "preview", str(source)]), \
+                patch.object(renderer, "preview") as preview, \
+                patch.object(renderer.time, "sleep", side_effect=AssertionError("One-shot delay")), \
+                patch.object(renderer, "input_stamp", side_effect=AssertionError("Extra scan")):
+            renderer.main()
+        preview.assert_called_once_with(source)
+
+    def test_parallel_cache_writes_are_atomic_and_leave_no_temp_files(self):
+        target = self.root / "shared.png"
+        barrier = Barrier(2)
+        replace = Path.replace
+        attempted = set()
+
+        def together(path, destination):
+            if path not in attempted:
+                attempted.add(path)
+                barrier.wait(timeout=5)
+            return replace(path, destination)
+
+        with patch.object(Path, "replace", together), ThreadPoolExecutor(max_workers=2) as workers:
+            list(workers.map(lambda data: renderer.write_changed(target, data), [b"first", b"second"]))
+        self.assertIn(target.read_bytes(), (b"first", b"second"))
+        self.assertFalse(list(self.root.glob("*.tmp")))
+
+    def test_failed_cache_replace_preserves_previous_file_and_cleans_temp(self):
+        target = self.root / "shared.png"
+        target.write_bytes(b"previous")
+        with patch.object(Path, "replace", side_effect=OSError("replace failed")):
+            with self.assertRaisesRegex(OSError, "replace failed"):
+                renderer.write_changed(target, b"new")
+        self.assertEqual(target.read_bytes(), b"previous")
+        self.assertFalse(list(self.root.glob("*.tmp")))
 
 
 class ActionRegressions(unittest.TestCase):
@@ -258,6 +379,7 @@ class SaveAndOpenRegressions(unittest.IsolatedAsyncioTestCase):
         patch.object(server, "active_previews", {self.source}).start()
         patch.object(server, "pending_saves", {}).start()
         patch.object(server, "render_lock", asyncio.Lock()).start()
+        patch.object(server, "export_lock", asyncio.Lock()).start()
 
     async def save(self, path=None):
         await server.saved(lsp.DidSaveTextDocumentParams(
@@ -329,6 +451,74 @@ class SaveAndOpenRegressions(unittest.IsolatedAsyncioTestCase):
             await server.build(self.source.as_uri())
             self.assertEqual(message.call_args.args[0].type, lsp.MessageType.Error)
             self.assertIn("could not open", message.call_args.args[0].message)
+
+    async def test_preview_does_not_wait_for_notebook_export(self):
+        started = Event()
+        resume = Event()
+
+        def export(*args):
+            started.set()
+            if not resume.wait(5):
+                raise TimeoutError("Preview was blocked by export")
+            return self.root / "notebook.html"
+
+        with patch.object(server, "export_in_process", side_effect=export), \
+                patch.object(renderer, "preview", return_value=self.root / "preview.md") as preview, \
+                patch.object(server.server, "window_show_message") as message:
+            task = asyncio.create_task(server.build((self.root / "notebook.ipynb").as_uri(), "html", show=False))
+            try:
+                self.assertTrue(await asyncio.to_thread(started.wait, 2))
+                await asyncio.wait_for(server.build(self.source.as_uri(), show=False), 1)
+                preview.assert_called_once()
+                self.assertFalse(task.done())
+            finally:
+                resume.set()
+                await task
+            message.assert_not_called()
+
+    async def test_exports_run_one_at_a_time(self):
+        with patch.object(server, "export_in_process", return_value=self.root / "notebook.html") as export, \
+                patch.object(server.server, "window_show_message"):
+            async with server.export_lock:
+                tasks = [asyncio.create_task(server.build(self.source.as_uri(), kind, show=False)) for kind in ("html", "pdf")]
+                await asyncio.sleep(0)
+                export.assert_not_called()
+            await asyncio.gather(*tasks)
+            self.assertEqual(export.call_count, 2)
+
+    async def test_export_failure_reports_error_without_opening_stale_file(self):
+        with patch.object(server, "export_in_process", side_effect=RuntimeError("kernel failed")), \
+                patch.object(server.server, "window_show_document_async", new_callable=AsyncMock) as show, \
+                patch.object(server.server, "window_show_message") as message:
+            await server.build(self.source.as_uri(), "html")
+            show.assert_not_awaited()
+            self.assertEqual(message.call_args.args[0].type, lsp.MessageType.Error)
+            self.assertIn("kernel failed", message.call_args.args[0].message)
+
+
+class ExportProcessRegressions(unittest.TestCase):
+    def test_source_and_frozen_commands_execute_notebooks(self):
+        source = Path(__file__).resolve().with_name("example.ipynb")
+        for frozen in (False, True):
+            with self.subTest(frozen=frozen), patch.object(sys, "frozen", frozen, create=True), \
+                    patch.object(server.subprocess, "run", return_value=Mock(returncode=0)) as run:
+                output = server.export_in_process(source, "pdf")
+                command = run.call_args.args[0]
+                expected = [sys.executable] if frozen else [sys.executable, str(Path(renderer.__file__).resolve())]
+                self.assertEqual(command, expected + ["export", str(source), "--to", "pdf"])
+                self.assertNotIn("--no-execute", command)
+                self.assertEqual(output, renderer.output_directory(source) / "example.pdf")
+
+    def test_export_error_includes_bounded_log_tail(self):
+        def fail(*args, **kwargs):
+            self.assertIs(kwargs["stdout"], kwargs["stderr"])
+            kwargs["stderr"].write(b"noise" * 5000 + b"kernel failed")
+            return Mock(returncode=1)
+
+        with patch.object(server.subprocess, "run", side_effect=fail):
+            with self.assertRaisesRegex(RuntimeError, "kernel failed") as error:
+                server.export_in_process(Path("example.ipynb"), "html")
+        self.assertEqual(len(str(error.exception)), 8000)
 
 
 if __name__ == "__main__":
