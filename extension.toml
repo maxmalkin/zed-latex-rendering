@@ -1,5 +1,5 @@
 id = "latex-rendering-lsp"
-name = "LaTeX Rendering"
+name = "ZedTeX"
 version = "0.1.0"
 schema_version = 1
 authors = ["Max Malkin"]
@@ -8,5 +8,5 @@ repository = "https://github.com/maxmalkin/zed-latex-rendering"
 snippets = ["./snippets/python.json", "./snippets/latex.json"]
 
 [language_servers.latex-rendering]
-name = "LaTeX Rendering"
+name = "ZedTeX"
 languages = ["LaTeX", "Markdown", "Python", "JSON"]

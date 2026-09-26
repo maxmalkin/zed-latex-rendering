@@ -1,4 +1,4 @@
-# LaTeX Rendering for Zed
+# ZedTeX
 
 A language-server extension for official Zed: real TeX packages, page-image previews, Markdown math, and notebook HTML/PDF export.
 
@@ -6,7 +6,7 @@ A language-server extension for official Zed: real TeX packages, page-image prev
 
 ## Install
 
-Once the registry submission is accepted, install **LaTeX Rendering** from Zed's Extensions UI. The extension downloads its matching native renderer on first use, using Zed's extension API. Python and a full TeX distribution will not need to be installed separately. Real TeX packages are fetched and cached by Tectonic as needed.
+Once the registry submission is accepted, install **ZedTeX** from Zed's Extensions UI. The extension downloads its matching native renderer on first use, using Zed's extension API. Python and a full TeX distribution will not need to be installed separately. Real TeX packages are fetched and cached by Tectonic as needed.
 
 The extension adds a supplementary language server for LaTeX, Markdown, Python and notebook JSON. It keeps existing language servers in place. It does not replace Zed's native renderers or add a PDF viewer.
 

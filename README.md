@@ -1,6 +1,4 @@
-![LaTeX Rendering: real TeX equations rendered by the extension backend](assets/preview.png)
-
-Render real LaTeX while using **official Zed**. Keep your packages, preview your work, and export notebooks.
+![ZedTeX](assets/zedtex.png)
 
 | What you write | What you get |
 | --- | --- |
