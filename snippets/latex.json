@@ -1,0 +1,7 @@
+{
+  "LaTeX rendering shared preamble": {
+    "prefix": "ztexpreamble",
+    "body": ["\\usepackage{amsmath,amssymb}", "\\boldmath", "\\usepackage{${1:mathtools}}", "$0"],
+    "description": "Save as latex-preamble.tex beside the Markdown file or notebook"
+  }
+}

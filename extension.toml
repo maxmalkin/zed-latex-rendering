@@ -1,0 +1,8 @@
+id = "latex-rendering"
+name = "LaTeX Rendering"
+version = "0.1.0"
+schema_version = 1
+authors = ["Max Malkin"]
+description = "Snippets for package-aware LaTeX rendering, with companion preview and notebook export tools. Requires companion setup; works with official Zed."
+repository = "https://github.com/maxmalkin/zed-latex-rendering"
+snippets = ["./snippets/python.json", "./snippets/latex.json"]
