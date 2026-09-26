@@ -66,13 +66,19 @@ try:
         response = read()
         assert [action["command"]["command"] for action in response["result"]] == expected
         assert all(command in commands for command in expected), "Zed filters out unadvertised commands"
-    for request_id, (name, opened_name) in enumerate([("paper.tex", "page-001.png"), ("notes.md", "preview.md")], 20):
-        send({"jsonrpc": "2.0", "id": request_id, "method": "workspace/executeCommand", "params": {"command": "latex.preview", "arguments": [(examples / name).as_uri()]}})
+    notebook_source = (examples / "notebook.ipynb").read_bytes()
+    for request_id, (name, command, opened_name) in enumerate([
+        ("paper.tex", "latex.preview", "page-001.png"), ("notes.md", "latex.preview", "preview.md"),
+        ("notebook.ipynb", "latex.export.html", "notebook.html"),
+        ("notebook.ipynb", "latex.export.pdf", "notebook.pdf"),
+    ], 20):
+        send({"jsonrpc": "2.0", "id": request_id, "method": "workspace/executeCommand", "params": {"command": command, "arguments": [(examples / name).as_uri()]}})
         opened = False
         while True:
             response = read()
             if response.get("method") == "window/showDocument":
                 assert response["params"]["uri"].endswith(opened_name)
+                assert bool(response["params"].get("external")) == command.startswith("latex.export.")
                 opened = True
                 send({"jsonrpc": "2.0", "id": response["id"], "result": {"success": True}})
             elif response.get("id") == request_id:
@@ -80,6 +86,10 @@ try:
                 break
             elif response.get("method") == "window/showMessage":
                 assert response["params"]["type"] != 1, response
+    assert (examples / "notebook.ipynb").read_bytes() == notebook_source
+    notebook_output = output_directory(examples / "notebook.ipynb")
+    assert "n = 5: sum = 15" in (notebook_output / "notebook.html").read_text(encoding="utf-8")
+    assert (notebook_output / "notebook.pdf").read_bytes().startswith(b"%PDF")
     send({"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": None})
     response = read()
     while "id" not in response:

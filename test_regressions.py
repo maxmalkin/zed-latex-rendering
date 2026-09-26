@@ -238,18 +238,30 @@ class CacheRegressions(unittest.TestCase):
         math = renderer.Renderer(self.source)
         reads = []
         read = Path.read_bytes
+        scan = os.scandir
 
         def track(path):
             reads.append(path)
             return read(path)
 
+        def source_only(path):
+            self.assertNotEqual(Path(path), math.cache, "Unnecessary cache scan")
+            return scan(path)
+
         with patch.object(Path, "read_bytes", track), \
-                patch.object(renderer.os, "scandir", side_effect=AssertionError("Unnecessary cache scan")):
+                patch.object(renderer.os, "scandir", side_effect=source_only):
             math.render([equation])
             for _ in range(200):
                 math.render([equation])
         self.assertEqual(len(reads), 1)
         self.assertEqual(math.images[equation], (self.png, 4, 4))
+
+    def test_documents_without_math_skip_dependency_scanning(self):
+        with patch.object(renderer, "input_stamp", side_effect=AssertionError("No math dependencies")):
+            math = renderer.Renderer(self.source)
+            self.assertEqual(renderer.convert_markdown("Plain **Markdown**.", math, Mock()).strip(), "Plain **Markdown**.")
+            math.render([])
+        self.compile.assert_not_called()
 
     def test_disk_cache_remains_bounded_by_bytes_and_count(self):
         for byte_limit, entry_limit, expected in ((len(self.png) * 2, 4096, 2), (1024 * 1024, 3, 3)):

@@ -46,9 +46,23 @@ Python `# %%` scripts also execute before export. Notebook dependencies must be 
 
 ## Resource use
 
-Math compiles only missing equations in batches and reuses a bounded disk cache. Unchanged TeX inputs skip compilation. After a TeX rebuild, unchanged page objects reuse their PNGs; shared font or resource changes conservatively invalidate affected pages. Rasterization processes one page at a time. Limits: three-minute compilation, 8-MB compiler log, 100-MB PDF, 200 preview pages, 16 million raster pixels per document page, one million pixels per equation, and 64 MiB / 512 entries in the math cache.
+Math compiles only missing equations in batches and reuses a bounded disk cache. Cache hits read each PNG once; eviction runs only after new images are written. Repeated equations and local images are encoded once per Markdown conversion. Documents without equations skip TeX dependency scanning. Unchanged TeX inputs skip compilation. After a TeX rebuild, unchanged page objects reuse their PNGs; shared font or resource changes conservatively invalidate affected pages. Rasterization processes one page at a time. Limits: three-minute compilation, 8-MB compiler log, 100-MB PDF, 200 preview pages, 16 million raster pixels per document page, one million pixels per equation, and 64 MiB / 4,096 entries in each source directory's math cache.
 
-On one Windows run, cached standalone requests took 0.28–0.54 seconds including process startup, with 41–44 MiB peak process-tree RSS; the idle LSP used 63 MiB. These are small-document measurements, not limits or guarantees.
+Notebook exports run one at a time in a separate process. They cannot block the preview queue, their notebook/browser memory is released when the process exits, and PDFium stays isolated from the preview process. Shared cache writes use unique temporary files and atomic replacement, with a bounded retry for Windows file-lock races. One-shot CLI previews skip the watcher's debounce and duplicate dependency scans.
+
+Measured on Windows with Python 3.13 and a warm TeX package cache (three-run medians for unchanged previews; timings exclude editor UI and process startup):
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| 256 unchanged equations | 122 ms | 66 ms |
+| 600 unchanged equations | 2,173 ms | 148 ms |
+| 200 Markdown notebook cells, populated math cache | 7,909 ms | 346 ms |
+| Same 3 MiB image used 12 times | 313 ms | 42 ms |
+| Peak renderer RSS for that repeated image | 97 MiB | 61 MiB |
+
+The notebook comparison uses saved outputs to isolate rendering cost; normal exports still execute every cell. Fresh kernel startup and browser PDF generation remain significant costs. A controlled two-second export no longer makes a zero-work preview wait two seconds. These measurements are workload-specific, not guarantees.
+
+Dependency invalidation remains conservative: TeX/resource changes beneath the source directory can invalidate math even when unrelated, and working sets beyond the cache budget can require recompilation. Generated document exports are not automatically evicted. Zed owns the displayed image/GPU cache; this extension cannot control its lifetime. Older renderer versions stay installed because previously inserted Jupyter helpers may still refer to them.
 
 Save a copy of exported files you want to keep; cache files are disposable. Older versions created `*.zed-output/` and `.zed-latex-cache/` beside the source; these can be removed after saving any exports you want to keep. Official Zed updates independently. This extension does not remove multiplayer features from the editor.
 
@@ -60,9 +74,9 @@ Then select the local clone from Zed’s **Install Dev Extension** dialog. If in
 
 To update a dev install, pull the repository and select it again with **Install Dev Extension**. Run the preview action again to refresh older generated files.
 
-Run `python -m unittest -v test_regressions` for the 31 fast regressions covering embedded PNG/SVG transport, reference deduplication, escaped paths, Markdown preservation, source cleanliness, notebook recognition, code actions, save coalescing, and opening errors. These run on Linux, Windows, and macOS for pushes and pull requests.
+Run `python -m unittest -v test_regressions` for the 45 fast regressions covering embedded PNG/SVG transport, reference deduplication, escaped paths, Markdown preservation, source cleanliness, cache limits and reuse, concurrent writes, preview/export isolation, notebook recognition, code actions, save coalescing, and opening errors. These run on Linux, Windows, and macOS for pushes and pull requests.
 
-`python check.py` exercises real local TeX packages, changed-page/equation reuse, unchanged-file timestamps, failure retention, and executed notebook HTML/PDF exports. It needs Tectonic and a registered Python Jupyter kernel. Every renderer release runs both suites plus `python check_bundle.py`, which tests the frozen executable and its LSP protocol, on all four supported platform targets. The workflow publishes only after every target passes.
+`python check.py` exercises real local TeX packages, changed-page/equation reuse, unchanged-file timestamps, failure retention, and executed notebook HTML/PDF exports. It needs Tectonic and a registered Python Jupyter kernel. Every renderer release runs both suites plus `python check_bundle.py`, which tests the frozen executable, LSP previews, and subprocess notebook exports through LSP, on all four supported platform targets. The workflow publishes only after every target passes.
 
 `cargo build --release --target wasm32-wasip2` builds the Zed extension. Native server bundles are built separately for each supported OS/architecture, then downloaded by the extension; they are not bundled into the extension registry archive.
 

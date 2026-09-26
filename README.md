@@ -22,7 +22,7 @@ Open a saved source file, press **Ctrl+Shift+P** (**Cmd+Shift+P** on macOS), and
 - **Markdown:** choose the same action, then press **Ctrl+Shift+V** (**Cmd+Shift+V** on macOS) in the generated `preview.md` tab.
 - **Notebooks:** choose **Notebook: run all cells and export to HTML** or **PDF**. The notebook’s Jupyter kernel and dependencies must be installed on the machine running the renderer.
 
-Keep editing the original file; saving updates an activated preview. Unchanged equations are reused. Generated files stay in the user cache, outside your repository—save a copy of exports you want to keep.
+Keep editing the original file; saving updates an activated preview. Unchanged equations are reused, and notebook exports run separately so previews stay responsive. Generated files stay in the user cache, outside your repository—save a copy of exports you want to keep.
 
 Markdown math appears in the generated preview. Zed’s original Markdown preview is unchanged. For live Jupyter equations, see the [rendering helper](DEVELOPMENT.md#jupyter-and-exports).
 

@@ -73,7 +73,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create backend-v0.1.2 release/*.zip
+          gh release create backend-v0.1.3 release/*.zip
           --target "$GITHUB_SHA"
-          --title "Renderer backend 0.1.2"
-          --notes "Fixes missing preview images over WSL/SSH with embedded, deduplicated images. Preamble files are configuration rather than standalone previews. Includes cross-platform regression, incremental rendering, notebook execution, and frozen LSP checks. Registry publication is separate."
+          --title "Renderer backend 0.1.3"
+          --notes "Faster math cache reuse, bounded 4,096-entry/64-MiB caches, single-pass image encoding, and independent notebook export processes. Fixes concurrent cache writes on Windows and removes one-shot preview delays. Includes 45 regression tests plus real rendering, fresh notebook execution, and frozen LSP preview/export checks on all four targets. Registry publication is separate."

@@ -110,7 +110,10 @@ def compile_tex(source, directory, output, *, document=None):
             while process.poll() is None:
                 if time.monotonic() > deadline or os.fstat(log.fileno()).st_size > 8 * 1024 * 1024:
                     raise RuntimeError("TeX exceeded its 180-second or 8-MB log limit.")
-                time.sleep(0.1)
+                try:
+                    process.wait(timeout=0.1)
+                except subprocess.TimeoutExpired:
+                    pass
             if process.returncode:
                 log.seek(max(0, os.fstat(log.fileno()).st_size - 8000))
                 raise RuntimeError(log.read().decode("utf-8", errors="replace"))
@@ -177,7 +180,7 @@ class Renderer:
         self.preamble = preamble.read_text(encoding="utf-8") if preamble.exists() else DEFAULT_PREAMBLE
         self.images = {}
         self.cache = cache_directory() / "math" / source_key(self.directory)
-        self.signature = hashlib.sha256(json.dumps(input_stamp(self.directory)).encode()).hexdigest()
+        self.signature = None
 
     def render(self, equations):
         from PIL import Image
@@ -186,6 +189,8 @@ class Renderer:
         for equation in dict.fromkeys(equations):
             if equation in self.images:
                 continue
+            if self.signature is None:
+                self.signature = hashlib.sha256(json.dumps(input_stamp(self.directory)).encode()).hexdigest()
             key = json.dumps([equation, self.preamble, self.signature, "raster-v1"])
             path = self.cache / (hashlib.sha256(key.encode()).hexdigest() + ".png")
             cache_paths[equation] = path
