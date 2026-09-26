@@ -10,6 +10,8 @@
 
 **Registry publication pending.** The renderer releases are tested on Windows x64, Linux x64, and Intel/Apple Silicon macOS. Once approved, install **ZedTeX** through Zed’s Extensions UI. The renderer downloads automatically; no installer scripts or custom Zed build are needed.
 
+For `.tex` files, also install **LaTeX** from Zed’s Extensions UI so Zed recognizes the language.
+
 ## Use
 
 Open a saved document and choose an action from Zed's **code-actions menu**:
