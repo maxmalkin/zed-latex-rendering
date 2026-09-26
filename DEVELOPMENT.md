@@ -2,7 +2,7 @@
 
 A language-server extension for official Zed: real TeX packages, page-image previews, Markdown math, and notebook HTML/PDF export.
 
-**Development status:** the renderer has passed Windows end-to-end checks. Automatic extension installation is being implemented and is not yet published in Zed's registry. No manual PowerShell installer or task-file setup is required by the intended distribution.
+**Development status:** native renderer bundles pass actual TeX, Markdown, executed notebook HTML/PDF, and LSP checks on Windows x64, Linux x64, and Intel/Apple Silicon macOS. Releases download automatically through the extension API. Registry publication is pending.
 
 ## Install
 
@@ -42,7 +42,9 @@ Python `# %%` scripts also execute before export. Notebook dependencies must be 
 
 ## Resource use
 
-Math compiles in batches and reuses a bounded disk cache. Unchanged TeX inputs skip compilation; rasterization processes one page at a time. Limits: three-minute compilation, 8-MB compiler log, 100-MB PDF, 200 preview pages, 16 million raster pixels per document page, one million pixels per equation, and 64 MiB / 512 entries in the math cache.
+Math compiles only missing equations in batches and reuses a bounded disk cache. Unchanged TeX inputs skip compilation. After a TeX rebuild, unchanged page objects reuse their PNGs; shared font or resource changes conservatively invalidate affected pages. Rasterization processes one page at a time. Limits: three-minute compilation, 8-MB compiler log, 100-MB PDF, 200 preview pages, 16 million raster pixels per document page, one million pixels per equation, and 64 MiB / 512 entries in the math cache.
+
+On one Windows run, cached standalone requests took 0.28–0.54 seconds including process startup, with 41–44 MiB peak process-tree RSS; the idle LSP used 63 MiB. These are small-document measurements, not limits or guarantees.
 
 Add `*.zed-output/` and `.zed-latex-cache/` to your project's ignore file if desired. Official Zed updates independently. This extension does not remove multiplayer features from the editor.
 

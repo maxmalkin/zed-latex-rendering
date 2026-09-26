@@ -8,7 +8,7 @@
 
 ## Install
 
-**Not yet published in Zed's registry.** The extension and automatic renderer downloads are being tested. Once approved, installation will be through Zed's Extensions UI—no installer scripts, task files, or custom editor build.
+**Registry publication pending.** The renderer releases are tested on Windows x64, Linux x64, and Intel/Apple Silicon macOS. Once approved, install **ZedTeX** through Zed’s Extensions UI. The renderer downloads automatically; no installer scripts or custom Zed build are needed.
 
 ## Use
 
