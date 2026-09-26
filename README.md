@@ -26,8 +26,6 @@ Keep editing the original file; saving updates an activated preview. Unchanged e
 
 Markdown math appears in the generated preview. Zed’s original Markdown preview is unchanged. For live Jupyter equations, see the [rendering helper](DEVELOPMENT.md#jupyter-and-exports).
 
-[Try Markdown](examples/notes.md) · [Try TeX](examples/paper.tex) · [Try a notebook](examples/notebook.ipynb) · [Menu not appearing?](DEVELOPMENT.md#troubleshooting)
-
 ## LaTeX packages
 
 TeX documents use their own preambles. For Markdown and notebooks, place `latex-preamble.tex` beside the source:
