@@ -1,4 +1,4 @@
-![ZedTeX — Markdown source beside its rendered math preview](assets/zedtex.png)
+![ZedTeX](assets/zedtex.png)
 
 ZedTeX adds LaTeX previews and notebook exports to Zed, with support for real TeX packages.
 
@@ -25,6 +25,8 @@ Open a saved source file, press **Ctrl+Shift+P** (**Cmd+Shift+P** on macOS), and
 Keep editing the original file; saving updates an activated preview. Unchanged equations are reused. Generated files stay in the user cache, outside your repository—save a copy of exports you want to keep.
 
 Markdown math appears in the generated preview. Zed’s original Markdown preview is unchanged. For live Jupyter equations, see the [rendering helper](DEVELOPMENT.md#jupyter-and-exports).
+
+![Markdown source beside its generated preview — illustration using actual ZedTeX output](assets/markdown-preview.png)
 
 ## LaTeX packages
 
