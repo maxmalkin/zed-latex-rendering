@@ -14,11 +14,23 @@ For `.tex` files, also install **LaTeX** from Zed’s Extensions UI so Zed recog
 
 ## Use
 
-Open a saved document and choose an action from Zed's **code-actions menu**:
+Open a saved document, press **Ctrl+Shift+P**, run **editor: toggle code actions**, then choose:
 
 - **LaTeX: build and open preview** — TeX or Markdown. Save to update it.
 - **LaTeX: insert Jupyter rendering helper** — run the inserted Python cell, then use `tex(r"x^2")`.
 - **Notebook: run all cells and export to HTML/PDF** — open a saved `.ipynb` as JSON. Export runs the notebook’s installed Jupyter kernel and includes fresh outputs.
+
+For a shorter palette search, add this to your Zed settings (merge with existing aliases):
+
+```json
+"command_aliases": {
+  "zedtex": "editor: toggle code actions"
+}
+```
+
+Then use **Ctrl+Shift+P → `zedtex` → Enter** to open the action menu. This is a palette alias; Zed's extension API does not expose standalone palette commands.
+
+If the menu is empty after updating a dev extension, focus the original source file and run **editor: restart language server** from the palette, then retry once the renderer has started.
 
 For **Markdown**, the action opens a generated `preview.md` tab. Press **Ctrl+Shift+V in that tab** to see the rendered equations. Run the action once for each source document; subsequent saves refresh its generated preview.
 
