@@ -3,3 +3,5 @@ __pycache__/
 build/
 .venv/
 *.zed-output/
+.zed-latex-cache/
+dist/

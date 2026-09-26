@@ -84,11 +84,11 @@ def compile_tex(source, directory, output, *, document=None):
     return pdf
 
 
-def page_png(pdf, index, scale):
+def page_png(pdf, index, scale, pixel_limit=16_000_000):
     with closing(pdf[index]) as page:
         width, height = page.get_size()
-        if width * height * scale * scale > 16_000_000:
-            raise RuntimeError("Page raster exceeds 16 million pixels.")
+        if width * height * scale * scale > pixel_limit:
+            raise RuntimeError(f"Page raster exceeds {pixel_limit} pixels.")
         bitmap = page.render(scale=scale)
         try:
             with bitmap.to_pil() as image:
@@ -154,7 +154,7 @@ class Renderer:
                     if len(pdf) != len(batch):
                         raise ValueError("Each equation must produce exactly one page.")
                     for index, equation in enumerate(batch):
-                        self.images[equation] = page_png(pdf, index, 2)
+                        self.images[equation] = page_png(pdf, index, 2, pixel_limit=1_000_000)
                         write_changed(cache_paths[equation], self.images[equation][0])
         cached = sorted(self.cache.glob("*.png"), key=lambda path: path.stat().st_mtime, reverse=True)
         size = 0
@@ -233,18 +233,19 @@ def preview(source):
             first_page = ""
             for index in range(len(pdf)):
                 data, _, _ = page_png(pdf, index, 1.5)
-                digest = hashlib.sha256(data).hexdigest()[:12]
-                name = f"page-{index + 1:03}-{digest}.png"
+                name = f"page-{index + 1:03}.png"
                 write_changed(output / name, data)
                 links.append(f"[{index + 1}]({name})")
                 if not index:
-                    first_page = name
+                    # Markdown caches image URLs; native image tabs watch stable filenames.
+                    first_page = "cover-" + hashlib.sha256(data).hexdigest()[:12] + ".png"
+                    write_changed(output / first_page, data)
             # One visible page avoids loading an entire document into Zed's GPU image cache.
             text = (f"# {source.name}\n\nPages: " + " · ".join(links)
                     + f"\n\nPDF: [{pdf_path.name}]({pdf_path.name})\n\n"
                     + f"![Page 1]({first_page})\n")
         write_changed(output / "preview.md", text)
-        for old in output.glob("page-*.png"):
+        for old in list(output.glob("page-*.png")) + list(output.glob("cover-*.png")):
             if old.name not in text:
                 old.unlink()
         write_changed(state, json.dumps(stamp))
@@ -280,6 +281,8 @@ def export_notebook(source, kind, *, execute=False):
     if source.suffix == ".py":
         import jupytext
         notebook = jupytext.read(source)
+        if not execute:
+            print("Script export has no saved REPL outputs. Use --execute or export a saved .ipynb.", flush=True)
     elif source.suffix == ".ipynb":
         notebook = nbformat.read(source, as_version=4)
     else:
@@ -319,6 +322,15 @@ def export_notebook(source, kind, *, execute=False):
     from nbconvert import HTMLExporter
     exporter = HTMLExporter(embed_images=True, mathjax_url="", require_js_url="")
     html, _ = exporter.from_notebook_node(notebook, resources={"metadata": {"path": str(source.parent)}})
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    sizes = {base64.b64encode(data).decode("ascii"): (width // 2, height // 2)
+             for data, width, height in renderer.images.values()}
+    for image in soup.find_all("img", alt="equation"):
+        encoded = image.get("src", "").partition("base64,")[2]
+        if encoded in sizes:
+            image["width"], image["height"] = map(str, sizes[encoded])
+    html = str(soup)
     output = output_directory(source)
     html_path = output / (source.stem + ".html")
     write_changed(html_path, html)
