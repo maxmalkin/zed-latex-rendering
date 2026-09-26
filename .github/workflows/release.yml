@@ -64,7 +64,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create backend-v0.1.0 release/*.zip
+          gh release create backend-v0.1.1 release/*.zip
           --target "$GITHUB_SHA"
-          --title "Renderer backend 0.1.0"
+          --title "Renderer backend 0.1.1"
           --notes "Native renderer bundles downloaded automatically by the Zed language-server extension. Registry publication is separate."

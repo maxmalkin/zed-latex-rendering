@@ -10,7 +10,7 @@ from pygls.uris import to_fs_path
 import zed_latex as renderer
 
 
-server = LanguageServer("ZedTeX", "0.1.0")
+server = LanguageServer("ZedTeX", "0.1.1")
 active_previews = set()
 render_lock = asyncio.Lock()
 pending_saves = {}
