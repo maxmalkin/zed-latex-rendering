@@ -12,7 +12,7 @@ The extension adds a supplementary language server for LaTeX, Markdown, Python a
 
 ## Preview
 
-For a saved `.tex` or `.md` file, press **Ctrl+Shift+P**, run **editor: toggle code actions**, then choose **LaTeX: build and open preview**. The optional `zedtex` palette alias is shown in the [README](README.md#use). Generated files stay outside the project, in ZedTeX's user cache (`%LOCALAPPDATA%/Cache/zedtex` on Windows, `~/Library/Caches/zedtex` on macOS, `$XDG_CACHE_HOME/zedtex` or `~/.cache/zedtex` on Linux). Each source has its own directory, so matching filenames in different projects do not collide.
+For a saved `.tex` or `.md` file, press **Ctrl+Shift+P**, run **editor: toggle code actions**, then choose **LaTeX: build and open preview**. Use **Cmd** instead of **Ctrl** on macOS. Generated files stay outside the project, in ZedTeX's user cache (`%LOCALAPPDATA%/Cache/zedtex` on Windows, `~/Library/Caches/zedtex` on macOS, `$XDG_CACHE_HOME/zedtex` or `~/.cache/zedtex` on Linux). Each source has its own directory, so matching filenames in different projects do not collide.
 
 - TeX: a real PDF plus numbered PNG pages. The first page opens in Zed's existing image viewer. Split it beside the source; open other page images from the file tree.
 - Markdown: a generated `preview.md` with math replaced by normal image links. Open it with Ctrl+Shift+V. Edit the original source file.
@@ -58,10 +58,28 @@ To use **Install Dev Extension**, install [Rust through rustup](https://rust-lan
 
 Then select the local clone from Zed’s **Install Dev Extension** dialog. If installation fails, use **zed: open log** to see the underlying compiler error. Registry installations download prebuilt extension code and do not require Rust.
 
+To update a dev install, pull the repository and select it again with **Install Dev Extension**. Run the preview action again to refresh older generated files.
+
 Run `python -m unittest -v test_regressions` for the 31 fast regressions covering embedded PNG/SVG transport, reference deduplication, escaped paths, Markdown preservation, source cleanliness, notebook recognition, code actions, save coalescing, and opening errors. These run on Linux, Windows, and macOS for pushes and pull requests.
 
 `python check.py` exercises real local TeX packages, changed-page/equation reuse, unchanged-file timestamps, failure retention, and executed notebook HTML/PDF exports. It needs Tectonic and a registered Python Jupyter kernel. Every renderer release runs both suites plus `python check_bundle.py`, which tests the frozen executable and its LSP protocol, on all four supported platform targets. The workflow publishes only after every target passes.
 
 `cargo build --release --target wasm32-wasip2` builds the Zed extension. Native server bundles are built separately for each supported OS/architecture, then downloaded by the extension; they are not bundled into the extension registry archive.
+
+The Python renderer, regression checks, and `package_bundle.py` are maintained here so releases can be reproduced and tested. Zed packages only the compiled extension, manifest, language files, and snippets; development scripts and documentation assets are not installed with it.
+
+## Troubleshooting
+
+If the action menu does not appear after installing or reloading, click another line in the original source file. If needed, run **editor: restart language server**, wait for startup, then move the cursor again. `.ipynb` files should show **Jupyter Notebook** or **JSON** in the status bar; reload the extension if they show **Unknown**.
+
+For a shorter palette search, merge this alias into your Zed settings:
+
+```json
+"command_aliases": {
+  "zedtex": "editor: toggle code actions"
+}
+```
+
+Search for `zedtex` and press Enter. The result is still named **editor: toggle code actions**; the LaTeX/Notebook menu appears afterward. Zed's extension API does not expose standalone palette commands.
 
 The source is GPL-3.0-or-later; see [LICENSE](LICENSE). Third-party components retain their licenses. Built from the lessons of the [Zed LaTeX fork](https://github.com/maxmalkin/zed), using Tectonic, pypdfium2, Jupyter nbconvert, Mistune, and Playwright.

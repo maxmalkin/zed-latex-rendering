@@ -1,61 +1,41 @@
-![ZedTeX](assets/zedtex.png)
+![ZedTeX — Markdown source beside its rendered math preview](assets/zedtex.png)
 
-| What you write | What you get |
+| File | Result |
 | --- | --- |
-| **TeX documents** | A real PDF and page images you can view inside Zed. |
-| **Markdown** | A preview copy with beautifully rendered equations. |
-| **Jupyter notebooks** | Equation images and HTML/PDF exports with fresh outputs. |
+| `.tex` | PDF and page previews inside Zed |
+| `.md` | A Markdown preview with rendered equations |
+| `.ipynb` / Python notebook | HTML or PDF with freshly executed outputs |
 
 ## Install
 
-**Registry publication pending.** The renderer releases are tested on Windows x64, Linux x64, and Intel/Apple Silicon macOS. Once approved, install **ZedTeX** through Zed’s Extensions UI. The renderer downloads automatically; no installer scripts or custom Zed build are needed.
+**Registry submission pending.** For now, clone this repository and select it through Zed’s **Install Dev Extension**. [Dev setup and updates →](DEVELOPMENT.md#development)
 
-For `.tex` files, also install **LaTeX** from Zed’s Extensions UI so Zed recognizes the language.
+Once published, install **ZedTeX** from the Extensions UI. The renderer downloads automatically. Also install **LaTeX** for `.tex` language support.
 
-**Updating a dev install:** pull this repository, then select it again with **Install Dev Extension**. Version **0.1.3** downloads the renderer with the WSL/SSH image fix. Run the preview action again to replace an older generated preview.
+## Preview and export
 
-## Use
+Open a saved source file, press **Ctrl+Shift+P** (**Cmd+Shift+P** on macOS), and run **editor: toggle code actions**.
 
-Open a saved document, press **Ctrl+Shift+P**, run **editor: toggle code actions**, then choose:
+- **TeX:** choose **LaTeX: build and open preview**. The first page opens in Zed’s image viewer.
+- **Markdown:** choose the same action, then press **Ctrl+Shift+V** (**Cmd+Shift+V** on macOS) in the generated `preview.md` tab.
+- **Notebooks:** choose **Notebook: run all cells and export to HTML** or **PDF**. The notebook’s Jupyter kernel and dependencies must be installed on the machine running the renderer.
 
-- **LaTeX: build and open preview** — TeX or Markdown. Save to update it.
-- **LaTeX: insert Jupyter rendering helper** — run the inserted Python cell, then use `tex(r"x^2")`.
-- **Notebook: run all cells and export to HTML/PDF** — open a saved `.ipynb` or Python notebook script. Export runs the notebook’s installed Jupyter kernel and includes fresh outputs.
+Keep editing the original file; saving updates an activated preview. Unchanged equations are reused. Generated files stay in the user cache, outside your repository—save a copy of exports you want to keep.
 
-For a shorter palette search, add this to your Zed settings (merge with existing aliases):
+Markdown math appears in the generated preview. Zed’s original Markdown preview is unchanged. For live Jupyter equations, see the [rendering helper](DEVELOPMENT.md#jupyter-and-exports).
 
-```json
-"command_aliases": {
-  "zedtex": "editor: toggle code actions"
-}
-```
+[Try Markdown](examples/notes.md) · [Try TeX](examples/paper.tex) · [Try a notebook](examples/notebook.ipynb) · [Menu not appearing?](DEVELOPMENT.md#troubleshooting)
 
-Then use **Ctrl+Shift+P → `zedtex` → Enter** to open the action menu. The palette result is still named **editor: toggle code actions**; the LaTeX or Notebook choices appear after Enter, depending on the file. Zed's extension API does not expose standalone palette commands.
+## LaTeX packages
 
-If nothing opens after installing or reloading the extension, click another line in the original source file to refresh Zed's actions, then retry. If necessary, run **editor: restart language server** and wait for startup before moving the cursor. `.ipynb` files should show **Jupyter Notebook** in the status bar; **JSON** also works. Reload the extension if they still show **Unknown**.
-
-For **Markdown**, the action opens a generated `preview.md` tab. Press **Ctrl+Shift+V in that tab** to see the rendered equations. Images are embedded, so previews also work across WSL/SSH without access to sibling cache files. Run the action once for each source document; subsequent saves refresh its generated preview.
-
-TeX previews open in Zed’s image viewer. Keep editing your original source file.
-
-Generated previews, exports, and equation images stay in ZedTeX’s user cache, outside your repository. Save a copy of an exported PDF or HTML file wherever you want to keep it.
-
-## Bring your packages
-
-TeX files use their own preambles. For Markdown and notebooks, put `latex-preamble.tex` beside the source:
+TeX documents use their own preambles. For Markdown and notebooks, place `latex-preamble.tex` beside the source:
 
 ```tex
 \usepackage{amsmath,amssymb,mathtools}
-\usepackage{localmath} % your local .sty file
 \boldmath
+% \usepackage{localmath} % optional local .sty file
 ```
 
-`latex-preamble.tex` is configuration, not a document to preview. Preview your Markdown file or a complete TeX document such as [paper.tex](examples/paper.tex), which starts with `\documentclass` and contains `\begin{document}`.
+The preamble configures packages; preview the document, not the preamble itself.
 
-## Built to stay responsive
-
-Unchanged equations are cached. Embedded images use shared references so repeated equations are stored once per preview. Saves are coalesced, compilation runs in the background, and pages are rasterized one at a time. TeX may still need a full compile when layout or references change.
-
-**A few limits:** page images are not a native PDF viewer; live Jupyter math uses the helper cell; the helper and kernel must run on the same machine. Raw notebook Markdown cells are rendered during export. Export runs cells in a fresh kernel; install your notebook’s dependencies in that kernel.
-
-[Examples](examples) · [Technical details](DEVELOPMENT.md) · [License](LICENSE)
+[Technical details](DEVELOPMENT.md) · [License](LICENSE)

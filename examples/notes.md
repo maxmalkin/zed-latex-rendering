@@ -1,13 +1,15 @@
-# Package-aware Markdown
+# A little mathematics
 
-The symbol $\LocalSet$ is defined by the local package.
+Inline math: $\infty$ and $e^{i\pi}+1=0$.
+
+## From sums to integrals
 
 $$
-\sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+\sum_{k=1}^{n} k = \frac{n(n+1)}{2}
 $$
 
-The shared preamble is in [latex-preamble.tex](latex-preamble.tex).
+$$
+\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}
+$$
 
-```tex
-$This stays literal inside a code fence.$
-```
+Local packages work too: $x \in \LocalSet$.
