@@ -50,6 +50,10 @@ Add `*.zed-output/` and `.zed-latex-cache/` to your project's ignore file if des
 
 ## Development
 
+To use **Install Dev Extension**, install [Rust through rustup](https://rust-lang.org/tools/install/) on the same OS as Zed. Windows-native Zed needs Windows Rust; a WSL Rust installation does not supply its compiler. Restart Zed after installing Rust so it sees the updated PATH. Zed installs the `wasm32-wasip2` target automatically. Windows builds also need the Visual C++ build tools required by Rust.
+
+Then select the local clone from Zed’s **Install Dev Extension** dialog. If installation fails, use **zed: open log** to see the underlying compiler error. Registry installations download prebuilt extension code and do not require Rust.
+
 `check.py` exercises the renderer with real local packages, preview updates, caching, error retention, and notebook exports. `cargo build --release --target wasm32-wasip2` builds the Zed extension. Native server bundles are built separately for each supported OS/architecture, then downloaded by the extension; they are not bundled into the extension registry archive.
 
 The source is GPL-3.0-or-later; see [LICENSE](LICENSE). Third-party components retain their licenses. Built from the lessons of the [Zed LaTeX fork](https://github.com/maxmalkin/zed), using Tectonic, pypdfium2, Jupyter nbconvert, Mistune, and Playwright.

@@ -7,3 +7,4 @@ build/
 dist/
 target/
 *.spec
+/extension.wasm
