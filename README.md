@@ -20,7 +20,9 @@ Open a saved document and choose an action from Zed's **code-actions menu**:
 - **LaTeX: insert Jupyter rendering helper** — run the inserted Python cell, then use `tex(r"x^2")`.
 - **Notebook: run all cells and export to HTML/PDF** — open a saved `.ipynb` as JSON. Export runs the notebook’s installed Jupyter kernel and includes fresh outputs.
 
-TeX previews use Zed's image viewer. Markdown previews use generated image links. Your original files stay intact.
+For **Markdown**, the action opens a generated `preview.md` tab. Press **Ctrl+Shift+V in that tab** to see the rendered equations. Run the action once for each source document; subsequent saves refresh its generated preview.
+
+TeX previews open in Zed’s image viewer. Keep editing your original source file.
 
 ## Bring your packages
 
