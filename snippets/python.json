@@ -1,12 +1,12 @@
 {
   "Render LaTeX as a Jupyter image": {
     "prefix": "ztex",
-    "body": ["from zed_latex import tex", "tex(r\"${1:x^2}\")$0"],
-    "description": "Render real TeX with latex-preamble.tex and local packages; run with a Jupyter kernel containing zed-latex-tools"
+    "body": ["tex(r\"${1:x^2}\")$0"],
+    "description": "Use after the code action LaTeX: insert Jupyter rendering helper and running its cell"
   },
   "Notebook cell with rendered LaTeX": {
     "prefix": "ztexcell",
-    "body": ["# %%", "from zed_latex import tex", "tex(r\"\"\"", "${1:x^2 + y^2}", "\"\"\")$0"],
+    "body": ["# %%", "tex(r\"\"\"", "${1:x^2 + y^2}", "\"\"\")$0"],
     "description": "Create an executable Python notebook cell with a package-aware equation image"
   }
 }

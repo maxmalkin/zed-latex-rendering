@@ -1,8 +1,12 @@
-id = "latex-rendering"
+id = "latex-rendering-lsp"
 name = "LaTeX Rendering"
 version = "0.1.0"
 schema_version = 1
 authors = ["Max Malkin"]
-description = "Snippets for package-aware LaTeX rendering, with companion preview and notebook export tools. Requires companion setup; works with official Zed."
+description = "Package-aware TeX page previews, Markdown math images, and notebook HTML/PDF exports through code actions."
 repository = "https://github.com/maxmalkin/zed-latex-rendering"
 snippets = ["./snippets/python.json", "./snippets/latex.json"]
+
+[language_servers.latex-rendering]
+name = "LaTeX Rendering"
+languages = ["LaTeX", "Markdown", "Python", "JSON"]

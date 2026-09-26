@@ -11,10 +11,11 @@ dependencies = [
   "nbconvert>=7.16,<8", "nbformat>=5.10,<6", "mistune>=3.3.4,<4",
   "pypdfium2>=4.30,<6", "Pillow>=11,<13", "playwright>=1.50,<2",
   "ipykernel>=6.29,<8", "jupytext>=1.16,<2", "beautifulsoup4>=4.12,<5",
+  "pygls>=2,<3",
 ]
 
 [project.scripts]
 zed-latex = "zed_latex:main"
 
 [tool.setuptools]
-py-modules = ["zed_latex"]
+py-modules = ["zed_latex", "server"]

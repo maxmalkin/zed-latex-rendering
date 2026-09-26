@@ -36,6 +36,9 @@ def write_changed(path, data):
 
 
 def compiler():
+    bundled = Path(sys.executable).with_name("tectonic.exe" if sys.platform == "win32" else "tectonic")
+    if bundled.is_file():
+        return str(bundled)
     configured = os.environ.get("ZED_LATEX_TECTONIC")
     if configured:
         return configured
@@ -221,7 +224,7 @@ def preview(source):
         stamp = input_stamp(source.parent)
         state = output / "inputs.json"
         if state.exists() and json.loads(state.read_text()) == [list(value) for value in stamp]:
-            print("Unchanged; reusing PDF and pages.", flush=True)
+            print("Unchanged; reusing PDF and pages.", file=sys.stderr, flush=True)
             return output / "preview.md"
         compiled = compile_tex(None, source.parent, output / "build", document=source)
         pdf_path = output / compiled.name
@@ -264,7 +267,7 @@ def preview(source):
                 old.unlink()
     else:
         raise ValueError("Preview expects a .tex or .md file.")
-    print(output / "preview.md", flush=True)
+    print(output / "preview.md", file=sys.stderr, flush=True)
     return output / "preview.md"
 
 
@@ -282,7 +285,7 @@ def export_notebook(source, kind, *, execute=False):
         import jupytext
         notebook = jupytext.read(source)
         if not execute:
-            print("Script export has no saved REPL outputs. Use --execute or export a saved .ipynb.", flush=True)
+            print("Script export has no saved REPL outputs. Use --execute or export a saved .ipynb.", file=sys.stderr, flush=True)
     elif source.suffix == ".ipynb":
         notebook = nbformat.read(source, as_version=4)
     else:
@@ -351,7 +354,7 @@ def export_notebook(source, kind, *, execute=False):
         write_changed(result, pdf)
     else:
         result = html_path
-    print(result, flush=True)
+    print(result, file=sys.stderr, flush=True)
     return result
 
 
@@ -368,6 +371,9 @@ def tex(source, *, directory=None, display=True):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("serve")
+    math = commands.add_parser("math")
+    math.add_argument("--directory", type=Path, required=True)
     viewer = commands.add_parser("preview")
     viewer.add_argument("source", type=Path)
     viewer.add_argument("--watch", action="store_true")
@@ -377,7 +383,18 @@ def main():
     exporter.add_argument("--execute", action="store_true", help="Explicitly run notebook code before export")
     args = parser.parse_args()
     try:
-        if args.command == "export":
+        if args.command == "serve":
+            from server import server
+            server.start_io()
+        elif args.command == "math":
+            source = sys.stdin.read(262145)
+            if len(source) > 262144:
+                raise ValueError("Math input exceeds 256 KB.")
+            renderer = Renderer(args.directory)
+            equation = (latex_content(source), True)
+            renderer.render([equation])
+            sys.stdout.buffer.write(renderer.images[equation][0])
+        elif args.command == "export":
             export_notebook(args.source, args.to, execute=args.execute)
         else:
             source = args.source.resolve()

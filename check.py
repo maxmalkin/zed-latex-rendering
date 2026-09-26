@@ -21,7 +21,7 @@ def check():
     for filename in manifest["snippets"]:
         snippets = json.loads((repository / filename).read_text())
         assert all("prefix" in value and "body" in value for value in snippets.values())
-    assert len(json.loads((repository / "tasks.windows.json").read_text())) == 5
+    assert manifest["language_servers"]["latex-rendering"]["languages"]
     with tempfile.TemporaryDirectory(prefix="zed-latex-check-") as temporary:
         directory = Path(temporary)
         (directory / "localmath.sty").write_text(r"\ProvidesPackage{localmath}\newcommand{\LocalSet}{\mathbb{R}}")

@@ -1,0 +1,15 @@
+[package]
+name = "latex_rendering_extension"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.7.0"
+
+[profile.release]
+strip = true
+lto = true

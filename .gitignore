@@ -5,3 +5,5 @@ build/
 *.zed-output/
 .zed-latex-cache/
 dist/
+target/
+*.spec
