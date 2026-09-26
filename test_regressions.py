@@ -32,7 +32,7 @@ class PreviewRegressions(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="zedtex-regression-")
         self.addCleanup(self.temporary.cleanup)
-        root = Path(self.temporary.name)
+        root = Path(self.temporary.name).resolve()
         self.source = root / "source space δ"
         self.source.mkdir()
         self.cache = root / "cache"
@@ -183,7 +183,7 @@ class ActionRegressions(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="zedtex-actions-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.addCleanup(patch.stopall)
         patch.object(renderer, "cache_directory", return_value=self.root / "cache").start()
         patch.object(server, "active_previews", set()).start()
@@ -250,7 +250,7 @@ class SaveAndOpenRegressions(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="zedtex-save-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.source = self.root / "notes.md"
         self.source.write_text("$x$")
         self.addCleanup(patch.stopall)

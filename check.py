@@ -28,7 +28,7 @@ def check():
         assert all("prefix" in value and "body" in value for value in snippets.values())
     assert manifest["language_servers"]["latex-rendering"]["languages"]
     with tempfile.TemporaryDirectory(prefix="zed-latex-check-") as temporary:
-        directory = Path(temporary)
+        directory = Path(temporary).resolve()
         (directory / "localmath.sty").write_text(r"\ProvidesPackage{localmath}\newcommand{\LocalSet}{\mathbb{R}}")
         (directory / "latex-preamble.tex").write_text(tools.DEFAULT_PREAMBLE + "\\usepackage{localmath}\n")
         with patch.object(tools, "compile_tex", side_effect=AssertionError("Preamble compiled as a document")):
