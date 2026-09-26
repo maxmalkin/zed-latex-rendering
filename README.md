@@ -24,6 +24,8 @@ For **Markdown**, the action opens a generated `preview.md` tab. Press **Ctrl+Sh
 
 TeX previews open in Zed’s image viewer. Keep editing your original source file.
 
+Generated previews, exports, and equation images stay in ZedTeX’s user cache, outside your repository. Save a copy of an exported PDF or HTML file wherever you want to keep it.
+
 ## Bring your packages
 
 TeX files use their own preambles. For Markdown and notebooks, put `latex-preamble.tex` beside the source:

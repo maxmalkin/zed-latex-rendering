@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import mistune
 from mistune.renderers.markdown import MarkdownRenderer
@@ -22,6 +22,20 @@ import pypdfium2 as pdfium
 
 
 DEFAULT_PREAMBLE = "\\usepackage{amsmath,amssymb}\n\\boldmath\n"
+
+
+def cache_directory():
+    if sys.platform == "win32":
+        root = Path(os.environ["LOCALAPPDATA"]) / "Cache"
+    elif sys.platform == "darwin":
+        root = Path.home() / "Library" / "Caches"
+    else:
+        root = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return root.resolve() / "zedtex"
+
+
+def source_key(source):
+    return hashlib.sha256(os.fsencode(Path(source).resolve())).hexdigest()
 
 
 def write_changed(path, data):
@@ -139,7 +153,7 @@ class Renderer:
         preamble = self.directory / "latex-preamble.tex"
         self.preamble = preamble.read_text(encoding="utf-8") if preamble.exists() else DEFAULT_PREAMBLE
         self.images = {}
-        self.cache = self.directory / ".zed-latex-cache"
+        self.cache = cache_directory() / "math" / source_key(self.directory)
         self.signature = json.dumps(input_stamp(self.directory))
 
     def render(self, equations):
@@ -209,18 +223,39 @@ class ImageMarkdown(MarkdownRenderer):
         return "~~" + self.render_children(token, state) + "~~"
 
 
-def convert_markdown(source, renderer, render_image, *, rebase=False):
+def convert_markdown(source, renderer, render_image, *, link_directory=None):
     parser = markdown_parser()
     tokens, state = parser.parse(source)
     renderer.render(math_tokens(tokens))
-    if rebase:
-        def fix_url(attrs):
+    if link_directory is not None:
+        def fix_url(attrs, *, image=False):
             url = attrs.get("url", "")
-            if url and not urlsplit(url).scheme and not url.startswith(("/", "#")):
-                attrs["url"] = "../" + url
+            parts = urlsplit(url)
+            if url and not parts.scheme and not url.startswith(("/", "#")):
+                path = (renderer.directory / unquote(parts.path)).resolve()
+                # Remote Zed cannot load an image outside the preview's worktree.
+                if image and path.is_file():
+                    stat = path.stat()
+                    key = json.dumps([str(path), stat.st_mtime_ns, stat.st_size])
+                    name = hashlib.sha256(key.encode()).hexdigest()[:20] + path.suffix
+                    asset = link_directory / "assets" / name
+                    if not asset.exists():
+                        asset.parent.mkdir(parents=True, exist_ok=True)
+                        temporary = asset.with_name(asset.name + ".tmp")
+                        shutil.copyfile(path, temporary)
+                        temporary.replace(asset)
+                    attrs["url"] = "assets/" + quote(name)
+                    return
+                try:
+                    rebased = Path(os.path.relpath(path, link_directory)).as_posix()
+                except ValueError:  # Windows paths on different drives.
+                    rebased = path.as_posix()
+                attrs["url"] = urlunsplit(parts._replace(path=quote(rebased, safe="/:")))
         def fix_tokens(tokens):
             for token in tokens:
-                fix_url(token.get("attrs", {}))
+                fix_url(token.get("attrs", {}), image=token["type"] == "image")
+                if token["type"] == "image":
+                    token.pop("label", None)  # Use the cached URL even for reference images.
                 fix_tokens(token.get("children", []))
         fix_tokens(tokens)
         for attrs in state.env["ref_links"].values():
@@ -230,7 +265,7 @@ def convert_markdown(source, renderer, render_image, *, rebase=False):
 
 
 def output_directory(source):
-    return source.with_name(source.name + ".zed-output")
+    return cache_directory() / "documents" / source_key(source)
 
 
 def preview(source):
@@ -286,10 +321,13 @@ def preview(source):
             name = hashlib.sha256(data).hexdigest()[:20] + ".png"
             write_changed(output / name, data)
             return f"![equation]({name})"
-        text = convert_markdown(source.read_text(encoding="utf-8"), renderer, image_link, rebase=True)
+        text = convert_markdown(source.read_text(encoding="utf-8"), renderer, image_link, link_directory=output)
         text = f"<!-- Generated from {source.name}; edit the source file. -->\n\n" + text
         write_changed(output / "preview.md", text)
         for old in output.glob("*.png"):
+            if old.name not in text:
+                old.unlink()
+        for old in (output / "assets").glob("*"):
             if old.name not in text:
                 old.unlink()
     else:

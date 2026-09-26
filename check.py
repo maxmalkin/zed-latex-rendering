@@ -2,15 +2,18 @@
 from pathlib import Path
 from contextlib import closing
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import time
 import tomllib
+from urllib.parse import quote
 from unittest.mock import patch
 
 import nbformat
 import pypdfium2
+from PIL import Image
 
 import zed_latex as tools
 
@@ -33,6 +36,7 @@ def check():
                             r"\begin{document}\input{part}\newpage Second page.\end{document}")
         start = time.perf_counter()
         preview = tools.preview(document)
+        assert not preview.is_relative_to(directory)
         pdf = preview.parent / "sample.pdf"
         with pypdfium2.PdfDocument(pdf) as parsed:
             assert len(parsed) == 2
@@ -63,15 +67,24 @@ def check():
         assert pdf.read_bytes() == valid_pdf
         fragment.write_text(r"Local package: $\LocalSet$.")
         markdown = directory / "sample.md"
+        with Image.new("RGB", (4, 4), "red") as image:
+            image.save(directory / "local image.png")
         original = ("# Package check\n\nInline $\\LocalSet$ and ~~old~~.\n\n"
                     "$$\n\\frac{1}{2} \\in \\LocalSet\n$$\n\n"
                     "```tex\n$not_math$\n```\n\n"
-                    "[relative](part.tex)\n\n| A | B |\n|---|---|\n| $x$ | text |\n")
+                    "[relative](part.tex)\n\n![local](local%20image.png)\n\n"
+                    "![reference][picture]\n\n[picture]: local%20image.png\n\n"
+                    "| A | B |\n|---|---|\n| $x$ | text |\n")
         markdown.write_text(original)
         rendered = tools.preview(markdown)
         text = rendered.read_text(encoding="utf-8")
-        assert "../part.tex" in text and "$not_math$" in text and "|" in text
+        relative_link = quote(Path(os.path.relpath(fragment, rendered.parent)).as_posix(), safe="/:")
+        assert relative_link in text and "$not_math$" in text and "|" in text
         assert "\\LocalSet" not in text and "![equation]" in text
+        assets = list((rendered.parent / "assets").iterdir())
+        assert len(assets) == 1 and assets[0].read_bytes() == (directory / "local image.png").read_bytes()
+        assert text.count("assets/" + assets[0].name) == 2
+        assert tools.output_directory(directory / "subfolder" / "sample.md") != rendered.parent
         with patch.object(tools, "compile_tex", side_effect=AssertionError("Cached math recompiled")):
             tools.preview(markdown)
         assert markdown.read_text() == original
@@ -141,6 +154,9 @@ def check():
         finally:
             watcher.terminate()
             watcher.wait(timeout=10)
+        assert {path.name for path in directory.iterdir()} == {
+            "localmath.sty", "latex-preamble.tex", "part.tex", "sample.tex", "sample.md", "sample.ipynb", "script.py", "local image.png"
+        }, "Renderer left intermediate files beside the source"
         print("PASS: local packages, document changes, failure retention, cache, Markdown, fresh notebook outputs, failure retention, HTML and PDF.")
 
 

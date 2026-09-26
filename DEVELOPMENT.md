@@ -12,7 +12,7 @@ The extension adds a supplementary language server for LaTeX, Markdown, Python a
 
 ## Preview
 
-For a saved `.tex` or `.md` file, open Zed's code-actions menu and choose **LaTeX: build and open preview**. Generated files are stored beside the source in `<filename>.zed-output`.
+For a saved `.tex` or `.md` file, open Zed's code-actions menu and choose **LaTeX: build and open preview**. Generated files stay outside the project, in ZedTeX's user cache (`%LOCALAPPDATA%/Cache/zedtex` on Windows, `~/Library/Caches/zedtex` on macOS, `$XDG_CACHE_HOME/zedtex` or `~/.cache/zedtex` on Linux). Each source has its own directory, so matching filenames in different projects do not collide.
 
 - TeX: a real PDF plus numbered PNG pages. The first page opens in Zed's existing image viewer. Split it beside the source; open other page images from the file tree.
 - Markdown: a generated `preview.md` with math replaced by normal image links. Open it with Ctrl+Shift+V. Edit the original source file.
@@ -46,7 +46,7 @@ Math compiles only missing equations in batches and reuses a bounded disk cache.
 
 On one Windows run, cached standalone requests took 0.28–0.54 seconds including process startup, with 41–44 MiB peak process-tree RSS; the idle LSP used 63 MiB. These are small-document measurements, not limits or guarantees.
 
-Add `*.zed-output/` and `.zed-latex-cache/` to your project's ignore file if desired. Official Zed updates independently. This extension does not remove multiplayer features from the editor.
+Save a copy of exported files you want to keep; cache files are disposable. Older versions created `*.zed-output/` and `.zed-latex-cache/` beside the source; these can be removed after saving any exports you want to keep. Official Zed updates independently. This extension does not remove multiplayer features from the editor.
 
 ## Development
 

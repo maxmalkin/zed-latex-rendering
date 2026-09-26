@@ -6,6 +6,8 @@ import sys
 import tempfile
 from threading import Timer
 
+from zed_latex import output_directory
+
 binary = Path("dist/latex-rendering/latex-rendering" + (".exe" if sys.platform == "win32" else "")).resolve()
 examples = Path("examples").resolve()
 subprocess.run([binary, "preview", examples / "paper.tex"], check=True, timeout=180)
@@ -21,10 +23,11 @@ with tempfile.TemporaryDirectory() as temporary:
     original = path.read_bytes()
     for kind in ("html", "pdf"):
         subprocess.run([binary, "export", path, "--to", kind], check=True, timeout=360)
-    output = path.with_name(path.name + ".zed-output")
+    output = output_directory(path)
     assert "fresh-bundle-output" in (output / "test.html").read_text(encoding="utf-8")
     assert (output / "test.pdf").read_bytes().startswith(b"%PDF")
     assert path.read_bytes() == original
+    assert list(path.parent.iterdir()) == [path], "Renderer left intermediate files beside the source"
 process = subprocess.Popen([binary, "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 deadline = Timer(120, process.kill)
 deadline.start()

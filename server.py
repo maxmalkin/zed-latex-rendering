@@ -21,7 +21,7 @@ def source_path(uri):
     if not path or not uri.startswith("file:"):
         raise ValueError("Save the document to a local file first.")
     source = Path(path).resolve()
-    if any(part.endswith(".zed-output") for part in source.parts):
+    if source.is_relative_to(renderer.cache_directory()) or any(part.endswith(".zed-output") for part in source.parts):
         raise ValueError("Open the original source, not a generated preview.")
     return source
 
