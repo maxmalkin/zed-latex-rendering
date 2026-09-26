@@ -7,7 +7,7 @@ This repository contains an **installable Zed snippet extension plus a Python co
 ## Windows setup
 
 1. Clone or download this repository.
-2. In Zed, run **zed: install dev extension** and select this directory (the one containing `extension.toml`). This installs the snippets without a Rust build.
+2. In Zed, run **zed: install dev extension** and select this directory (the one containing `extension.toml`). This installs the snippets without a Rust build. Alternatively, after running the installer, select `%LOCALAPPDATA%\Programs\Zed-LaTeX-Tools\extension`.
 3. Install Python 3.11 or later if necessary. Run the following from this directory in PowerShell:
 
    ```powershell
@@ -17,7 +17,7 @@ This repository contains an **installable Zed snippet extension plus a Python co
 4. Install [Tectonic](https://tectonic-typesetting.github.io/) on PATH, or set `ZED_LATEX_TECTONIC` to its executable. On this machine the installer reuses the Tectonic binary from the previous Zed LaTeX installation, copying it into the companion directory so the old build can be removed independently.
 5. Run **repl: refresh kernelspecs** and select **Python (Zed LaTeX tools)** when using the supplied Jupyter helper.
 
-The installer creates `%LOCALAPPDATA%\Programs\Zed-LaTeX-Tools` and a separate Python environment. It registers a new kernel and installs `tasks.windows.json` into `%APPDATA%\Zed\tasks.json` only if that file does not already exist. Otherwise, merge the task entries manually; existing task files are preserved. Your editor settings are not changed.
+The installer creates `%LOCALAPPDATA%\Programs\Zed-LaTeX-Tools` and a separate Python environment, with ready-to-open examples in its `examples` directory. It registers a new kernel and installs `tasks.windows.json` into `%APPDATA%\Zed\tasks.json` only if that file does not already exist. Otherwise, merge the task entries manually; existing task files are preserved. Your editor settings are not changed.
 
 Microsoft Edge, already installed on Windows, is used for notebook PDF export. No additional browser or full TeX distribution is downloaded. Tectonic fetches TeX packages on first use and caches them.
 
