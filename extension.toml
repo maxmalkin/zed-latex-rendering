@@ -4,7 +4,7 @@ version = "0.1.0"
 schema_version = 1
 authors = ["Max Malkin"]
 description = "Package-aware TeX page previews, Markdown math images, and notebook HTML/PDF exports through code actions."
-repository = "https://github.com/maxmalkin/zed-latex-rendering"
+repository = "https://github.com/maxmalkin/zedtex"
 snippets = ["./snippets/python.json", "./snippets/latex.json"]
 
 [language_servers.latex-rendering]

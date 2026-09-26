@@ -21,7 +21,7 @@ impl zed::Extension for LatexRendering {
         let architecture_name = match architecture {
             Architecture::X8664 => "x86_64",
             Architecture::Aarch64 => "aarch64",
-            _ => return Err("LaTeX Rendering requires a 64-bit platform".into()),
+            _ => return Err("ZedTeX requires a 64-bit platform".into()),
         };
         let directory = "backend-v0.1.0";
         let executable = format!(
@@ -29,11 +29,19 @@ impl zed::Extension for LatexRendering {
             if os == Os::Windows { ".exe" } else { "" }
         );
         if !std::path::Path::new(&executable).is_file() {
-            zed::set_language_server_installation_status(server, &zed::LanguageServerInstallationStatus::Downloading);
+            zed::set_language_server_installation_status(
+                server,
+                &zed::LanguageServerInstallationStatus::Downloading,
+            );
             let asset = format!("latex-rendering-{os_name}-{architecture_name}.zip");
-            let release = zed::github_release_by_tag_name("maxmalkin/zed-latex-rendering", directory)?;
-            let url = release.assets.into_iter().find(|item| item.name == asset)
-                .ok_or_else(|| format!("No renderer release is available for {os_name}/{architecture_name}"))?
+            let release = zed::github_release_by_tag_name("maxmalkin/zedtex", directory)?;
+            let url = release
+                .assets
+                .into_iter()
+                .find(|item| item.name == asset)
+                .ok_or_else(|| {
+                    format!("No renderer release is available for {os_name}/{architecture_name}")
+                })?
                 .download_url;
             zed::download_file(&url, directory, zed::DownloadedFileType::Zip)?;
             zed::make_file_executable(&executable)?;
@@ -41,7 +49,9 @@ impl zed::Extension for LatexRendering {
                 zed::make_file_executable(&format!("{directory}/tectonic"))?;
             }
         }
-        let path = std::env::current_dir().map_err(|error| error.to_string())?.join(executable);
+        let path = std::env::current_dir()
+            .map_err(|error| error.to_string())?
+            .join(executable);
         Ok(zed::Command {
             command: path.to_string_lossy().into_owned(),
             args: vec!["serve".into()],
