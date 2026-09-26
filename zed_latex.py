@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -17,7 +18,6 @@ from urllib.parse import urlsplit
 
 import mistune
 from mistune.renderers.markdown import MarkdownRenderer
-import nbformat
 import pypdfium2 as pdfium
 
 
@@ -100,6 +100,22 @@ def page_png(pdf, index, scale, pixel_limit=16_000_000):
                 return output.getvalue(), image.width, image.height
         finally:
             bitmap.close()
+
+
+def page_fingerprint(pdf, index):
+    with pdfium.PdfDocument.new() as single:
+        single.import_pages(pdf, [index])
+        output = io.BytesIO()
+        single.save(output)
+        data = output.getvalue()
+    # PDFium generates a fresh /ID in its trailer on every save. Its serialized
+    # page objects already include content, fonts, images and other resources.
+    objects, separator, _ = data.rpartition(b"trailer\r\n")
+    # The fresh wrapper also has an Info dictionary with the current time.
+    # Normalize only PDFium's generated metadata, never page content/resources.
+    objects = re.sub(rb"(?m)^3 0 obj\r\n<</CreationDate\([^)]*\)/Creator\(PDFium\)/Producer\(PDFium\)>>\r\nendobj",
+                     b"3 0 obj\r\n<<>>\r\nendobj", objects) if separator else data
+    return hashlib.sha256(objects).hexdigest()
 
 
 def input_stamp(directory):
@@ -234,12 +250,21 @@ def preview(source):
                 raise ValueError("Preview is limited to 200 pages; the PDF is still available.")
             links = []
             first_page = ""
+            page_state = output / "pages.json"
+            old_fingerprints = json.loads(page_state.read_text()) if page_state.exists() else []
+            fingerprints = []
+            rendered_pages = 0
             for index in range(len(pdf)):
-                data, _, _ = page_png(pdf, index, 1.5)
                 name = f"page-{index + 1:03}.png"
-                write_changed(output / name, data)
+                fingerprint = page_fingerprint(pdf, index)
+                fingerprints.append(fingerprint)
+                if index >= len(old_fingerprints) or fingerprint != old_fingerprints[index] or not (output / name).exists():
+                    data, _, _ = page_png(pdf, index, 1.5)
+                    write_changed(output / name, data)
+                    rendered_pages += 1
                 links.append(f"[{index + 1}]({name})")
                 if not index:
+                    data = (output / name).read_bytes()
                     # Markdown caches image URLs; native image tabs watch stable filenames.
                     first_page = "cover-" + hashlib.sha256(data).hexdigest()[:12] + ".png"
                     write_changed(output / first_page, data)
@@ -248,10 +273,12 @@ def preview(source):
                     + f"\n\nPDF: [{pdf_path.name}]({pdf_path.name})\n\n"
                     + f"![Page 1]({first_page})\n")
         write_changed(output / "preview.md", text)
+        write_changed(page_state, json.dumps(fingerprints))
         for old in list(output.glob("page-*.png")) + list(output.glob("cover-*.png")):
             if old.name not in text:
                 old.unlink()
         write_changed(state, json.dumps(stamp))
+        print(f"Rasterized {rendered_pages}/{len(fingerprints)} pages.", file=sys.stderr, flush=True)
     elif source.suffix.lower() == ".md":
         renderer = Renderer(source.parent)
         def image_link(equation):
@@ -279,20 +306,27 @@ def latex_content(text):
     return text
 
 
-def export_notebook(source, kind, *, execute=False):
+def export_notebook(source, kind, *, execute=True):
+    import nbformat
     source = Path(source).resolve()
     if source.suffix == ".py":
         import jupytext
         notebook = jupytext.read(source)
         if not execute:
-            print("Script export has no saved REPL outputs. Use --execute or export a saved .ipynb.", file=sys.stderr, flush=True)
+            print("Script export has no saved REPL outputs. Omit --no-execute to run all cells.", file=sys.stderr, flush=True)
     elif source.suffix == ".ipynb":
         notebook = nbformat.read(source, as_version=4)
     else:
         raise ValueError("Export expects .ipynb or a Jupytext # %% .py script.")
     if execute:
         from nbconvert.preprocessors import ExecutePreprocessor
-        ExecutePreprocessor(timeout=180).preprocess(notebook, {"metadata": {"path": str(source.parent)}})
+        from jupyter_client.kernelspec import KernelSpecManager
+        kernel = notebook.metadata.get("kernelspec", {}).get("name", "python3")
+        # A frozen renderer is not a Python kernel. Use the notebook's installed kernel.
+        if kernel not in KernelSpecManager(ensure_native_kernel=False).find_kernel_specs():
+            raise RuntimeError(f"Jupyter kernel '{kernel}' is not installed. Register the notebook's environment as a Jupyter kernel first.")
+        ExecutePreprocessor(timeout=180, kernel_name=kernel).preprocess(
+            notebook, {"metadata": {"path": str(source.parent)}})
     renderer = Renderer(source.parent)
     equations = []
     for cell in notebook.cells:
@@ -339,21 +373,39 @@ def export_notebook(source, kind, *, execute=False):
     write_changed(html_path, html)
     write_changed(output / (source.stem + ".rendered.ipynb"), nbformat.writes(notebook))
     if kind == "pdf":
-        from playwright.sync_api import sync_playwright
+        from playwright.sync_api import sync_playwright, Error as BrowserError
+        from playwright._impl._driver import compute_driver_executable, get_driver_env
+        # Keep the optional browser in the extension's directory, never a global install.
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(sys.executable).parent / "browser-cache")
+        node, cli = compute_driver_executable()
+        if sys.platform != "win32":
+            Path(node).chmod(Path(node).stat().st_mode | 0o111)
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(channel="msedge" if sys.platform == "win32" else "chromium")
             try:
-                page = browser.new_page(java_script_enabled=False)
-                page.goto(html_path.as_uri(), wait_until="load")
-                page.emulate_media(media="print")
-                pdf = page.pdf(format="A4", print_background=True,
-                               margin={"top": "12mm", "bottom": "12mm", "left": "12mm", "right": "12mm"})
-            finally:
-                browser.close()
-        result = html_path.with_suffix(".pdf")
-        write_changed(result, pdf)
-    else:
-        result = html_path
+                browser = playwright.chromium.launch(channel="msedge" if sys.platform == "win32" else "chrome")
+            except BrowserError:
+                try:
+                    browser = playwright.chromium.launch()
+                except BrowserError:
+                    subprocess.run([node, cli, "install", "chromium", "--only-shell"],
+                                   env=get_driver_env(), stdout=sys.stderr, stderr=sys.stderr, check=True, timeout=300)
+                    browser = playwright.chromium.launch()
+            return export_pdf_with_browser(browser, html_path)
+    print(html_path, file=sys.stderr, flush=True)
+    return html_path
+
+
+def export_pdf_with_browser(browser, html_path):
+    try:
+        page = browser.new_page(java_script_enabled=False)
+        page.goto(html_path.as_uri(), wait_until="load")
+        page.emulate_media(media="print")
+        pdf = page.pdf(format="A4", print_background=True,
+                       margin={"top": "12mm", "bottom": "12mm", "left": "12mm", "right": "12mm"})
+    finally:
+        browser.close()
+    result = html_path.with_suffix(".pdf")
+    write_changed(result, pdf)
     print(result, file=sys.stderr, flush=True)
     return result
 
@@ -380,7 +432,7 @@ def main():
     exporter = commands.add_parser("export")
     exporter.add_argument("source", type=Path)
     exporter.add_argument("--to", choices=("html", "pdf"), required=True)
-    exporter.add_argument("--execute", action="store_true", help="Explicitly run notebook code before export")
+    exporter.add_argument("--no-execute", action="store_true", help="Use saved outputs instead of running notebook code")
     args = parser.parse_args()
     try:
         if args.command == "serve":
@@ -395,7 +447,7 @@ def main():
             renderer.render([equation])
             sys.stdout.buffer.write(renderer.images[equation][0])
         elif args.command == "export":
-            export_notebook(args.source, args.to, execute=args.execute)
+            export_notebook(args.source, args.to, execute=not args.no_execute)
         else:
             source = args.source.resolve()
             previous = None

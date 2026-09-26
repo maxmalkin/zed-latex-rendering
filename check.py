@@ -42,8 +42,15 @@ def check():
             tools.preview(document)
         assert pdf.stat().st_mtime_ns == before
         print(f"Two-page TeX + raster: {time.perf_counter() - start:.3f}s", flush=True)
-        fragment.write_text(r"Changed local package content: $\LocalSet$.")
-        tools.preview(document)
+        fragment.write_text(r"Local package: \hspace{5pt}$\LocalSet$.")
+        rastered = []
+        original_raster = tools.page_png
+        def track_raster(pdf, index, *args, **kwargs):
+            rastered.append(index)
+            return original_raster(pdf, index, *args, **kwargs)
+        with patch.object(tools, "page_png", side_effect=track_raster):
+            tools.preview(document)
+        assert rastered == [0], f"Expected only edited page to rasterize, got {rastered}"
         assert pdf.stat().st_mtime_ns != before
         valid_pdf = pdf.read_bytes()
         fragment.write_text(r"\undefinedFailOnPurpose")
@@ -68,6 +75,13 @@ def check():
         with patch.object(tools, "compile_tex", side_effect=AssertionError("Cached math recompiled")):
             tools.preview(markdown)
         assert markdown.read_text() == original
+        markdown.write_text(original.replace("$x$", "$y$"))
+        with patch.object(tools, "compile_tex", wraps=tools.compile_tex) as compile_math:
+            tools.preview(markdown)
+        assert compile_math.call_count == 1
+        compiled_math = compile_math.call_args.args[0]
+        assert "y$" in compiled_math and r"\LocalSet" not in compiled_math
+        print("Changed equation: 1 compiled; other equations reused.", flush=True)
         before_change = rendered.read_text(encoding="utf-8")
         (directory / "localmath.sty").write_text(r"\ProvidesPackage{localmath}\newcommand{\LocalSet}{\mathbb{C}}")
         tools.preview(markdown)
@@ -76,7 +90,7 @@ def check():
         assert image.data.startswith(b"\x89PNG")
         notebook = nbformat.v4.new_notebook(cells=[
             nbformat.v4.new_markdown_cell(original),
-            nbformat.v4.new_code_cell("raise RuntimeError('Export must not execute code')", execution_count=1,
+            nbformat.v4.new_code_cell("from IPython.display import display, Latex\nprint('fresh-output-123')\ndisplay(Latex(r'$\\LocalSet$'))", execution_count=1,
                 outputs=[nbformat.v4.new_output("display_data", data={"text/latex": r"$\LocalSet$", "text/plain": "set"}),
                          nbformat.v4.new_output("stream", name="stdout", text="saved-output-123")]),
         ])
@@ -85,13 +99,25 @@ def check():
         saved_source = path.read_bytes()
         html = tools.export_notebook(path, "html")
         html_text = html.read_text(encoding="utf-8")
-        assert "data:image/png;base64," in html_text and "saved-output-123" in html_text
+        assert "data:image/png;base64," in html_text and "fresh-output-123" in html_text and "saved-output-123" not in html_text
         exported_pdf = tools.export_notebook(path, "pdf")
         with pypdfium2.PdfDocument(exported_pdf) as parsed:
             assert len(parsed) > 0
             with closing(parsed[0]) as page, closing(page.get_textpage()) as textpage:
                 assert "Package check" in textpage.get_text_range()
         assert path.read_bytes() == saved_source
+        previous_html, previous_pdf = html.read_bytes(), exported_pdf.read_bytes()
+        notebook.cells[1].source = "raise RuntimeError('intentional execution failure')"
+        nbformat.write(notebook, path)
+        try:
+            tools.export_notebook(path, "html")
+        except Exception as error:
+            assert "intentional execution failure" in str(error)
+        else:
+            raise AssertionError("Failed notebook execution produced an export")
+        assert html.read_bytes() == previous_html and exported_pdf.read_bytes() == previous_pdf
+        tools.export_notebook(path, "html", execute=False)
+        assert "saved-output-123" in html.read_text(encoding="utf-8")
         generated = nbformat.read(html.with_name("sample.rendered.ipynb"), as_version=4)
         assert generated.cells[0].attachments
         assert "image/png" in generated.cells[1].outputs[0].data
@@ -115,7 +141,7 @@ def check():
         finally:
             watcher.terminate()
             watcher.wait(timeout=10)
-        print("PASS: local packages, document changes, failure retention, cache, Markdown, saved outputs, HTML and PDF.")
+        print("PASS: local packages, document changes, failure retention, cache, Markdown, fresh notebook outputs, failure retention, HTML and PDF.")
 
 
 if __name__ == "__main__":

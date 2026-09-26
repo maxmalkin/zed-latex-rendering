@@ -4,7 +4,7 @@
 | --- | --- |
 | **TeX documents** | A real PDF and page images you can view inside Zed. |
 | **Markdown** | A preview copy with beautifully rendered equations. |
-| **Jupyter notebooks** | Equation images and HTML/PDF exports with saved outputs. |
+| **Jupyter notebooks** | Equation images and HTML/PDF exports with fresh outputs. |
 
 ## Install
 
@@ -16,7 +16,7 @@ Open a saved document and choose an action from Zed's **code-actions menu**:
 
 - **LaTeX: build and open preview** — TeX or Markdown. Save to update it.
 - **LaTeX: insert Jupyter rendering helper** — run the inserted Python cell, then use `tex(r"x^2")`.
-- **Notebook: export saved document to HTML/PDF** — open a saved `.ipynb` as JSON. Export does not rerun code.
+- **Notebook: run all cells and export to HTML/PDF** — open a saved `.ipynb` as JSON. Export runs the notebook’s installed Jupyter kernel and includes fresh outputs.
 
 TeX previews use Zed's image viewer. Markdown previews use generated image links. Your original files stay intact.
 
@@ -34,6 +34,6 @@ TeX files use their own preambles. For Markdown and notebooks, put `latex-preamb
 
 Unchanged equations are cached. Saves are coalesced, compilation runs in the background, and pages are rasterized one at a time. TeX may still need a full compile when layout or references change.
 
-**A few limits:** page images are not a native PDF viewer; live Jupyter math uses the helper cell; the helper and kernel must run on the same machine. Raw notebook Markdown cells are rendered during export. Python scripts do not store live REPL outputs.
+**A few limits:** page images are not a native PDF viewer; live Jupyter math uses the helper cell; the helper and kernel must run on the same machine. Raw notebook Markdown cells are rendered during export. Export runs cells in a fresh kernel; install your notebook’s dependencies in that kernel.
 
 [Examples](examples) · [Technical details](DEVELOPMENT.md) · [License](LICENSE)

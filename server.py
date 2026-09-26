@@ -10,9 +10,10 @@ from pygls.uris import to_fs_path
 import zed_latex as renderer
 
 
-server = LanguageServer("latex-rendering", "0.1.0")
+server = LanguageServer("ZedTeX", "0.1.0")
 active_previews = set()
 render_lock = asyncio.Lock()
+pending_saves = {}
 
 
 def source_path(uri):
@@ -37,7 +38,7 @@ def code_actions(params):
         if source in active_previews:
             actions.append(("LaTeX: stop rebuilding preview on save", "latex.stop"))
     if source.suffix.lower() in (".ipynb", ".py"):
-        actions.extend([(f"Notebook: export saved document to {kind.upper()}", f"latex.export.{kind}")
+        actions.extend([(f"Notebook: run all cells and export to {kind.upper()}", f"latex.export.{kind}")
                         for kind in ("html", "pdf")])
     result = [lsp.CodeAction(title=title, kind=lsp.CodeActionKind.Source,
                             command=lsp.Command(title=title, command=command, arguments=[params.text_document.uri]))
@@ -69,12 +70,14 @@ async def build(uri, kind=None, show=True):
                 result = await asyncio.to_thread(renderer.export_notebook, source, kind)
             else:
                 result = await asyncio.to_thread(renderer.preview, source)
-                active_previews.add(source)
+                if show:
+                    active_previews.add(source)
                 if source.suffix.lower() == ".tex":
                     result = result.parent / "page-001.png"
         if show:
             await server.window_show_document_async(lsp.ShowDocumentParams(uri=result.as_uri(), take_focus=True, external=bool(kind)))
-        server.window_show_message(lsp.ShowMessageParams(type=lsp.MessageType.Info, message=f"Rendered {result.name}"))
+        if show:
+            server.window_show_message(lsp.ShowMessageParams(type=lsp.MessageType.Info, message=f"Rendered {result.name}"))
     except Exception as error:
         server.window_show_message(lsp.ShowMessageParams(type=lsp.MessageType.Error, message=str(error)))
 
@@ -86,7 +89,23 @@ async def preview(uri: str):
 
 @server.command("latex.stop")
 def stop(uri: str):
-    active_previews.discard(source_path(uri))
+    source = source_path(uri)
+    active_previews.discard(source)
+    pending_saves.pop(source, None)
+
+
+async def rebuild_after_saves(source):
+    try:
+        while source in pending_saves:
+            version = pending_saves[source]
+            await asyncio.sleep(0.3)
+            if version != pending_saves.get(source):
+                continue
+            await build(source.as_uri(), show=False)
+            if version == pending_saves.get(source):
+                break
+    finally:
+        pending_saves.pop(source, None)
 
 
 @server.command("latex.export.html")
@@ -108,4 +127,7 @@ async def saved(params):
     for source in list(active_previews):
         if changed == source or (changed.suffix.lower() in (".tex", ".sty", ".cls", ".bib")
                                  and changed.is_relative_to(source.parent)):
-            await build(source.as_uri(), show=False)
+            running = source in pending_saves
+            pending_saves[source] = pending_saves.get(source, 0) + 1
+            if not running:
+                asyncio.create_task(rebuild_after_saves(source))

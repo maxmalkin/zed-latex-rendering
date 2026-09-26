@@ -36,9 +36,9 @@ Local `.sty` files resolve from that directory. This replaces the default amsmat
 
 In a Python document, invoke **LaTeX: insert Jupyter rendering helper**, then run the inserted cell with your existing Jupyter kernel. Use `tex(r"x^2")` in subsequent cells. The helper calls the downloaded renderer and returns a standard PNG output; no package installation into your kernel is needed. The kernel must run on the same machine as the rendering server.
 
-For a saved `.ipynb` opened as JSON, use **Notebook: export saved document to HTML/PDF**. Markdown equations and `text/latex` outputs are rendered with actual TeX packages before export. Outputs are preserved, and source notebooks are not overwritten or executed. Native notebook cells are not extension render hooks; arbitrary live kernel LaTeX and Markdown cells cannot be intercepted automatically.
+For a saved `.ipynb` opened as JSON, use **Notebook: run all cells and export to HTML/PDF**. Markdown equations and `text/latex` outputs are rendered with actual TeX packages before export. All cells run in order in the notebook’s installed Jupyter kernel, then fresh outputs are exported. The source notebook stays unchanged; the executed copy is saved beside the export. Cell failures stop export and preserve the previous successful export. Native notebook cells are not extension render hooks; arbitrary live kernel LaTeX and Markdown cells cannot be intercepted automatically.
 
-Python `# %%` scripts can also be exported, but they contain no saved REPL outputs. Save outputs in an `.ipynb` for export. HTML embeds rendered equations; PDF is generated from the same static HTML. Interactive widgets are not reproduced.
+Python `# %%` scripts also execute before export. Notebook dependencies must be installed in the selected Jupyter kernel; the renderer does not supply your computation environment. The developer CLI supports `--no-execute` to export saved outputs. HTML embeds rendered equations; PDF is generated from the same static HTML. Interactive widgets are not reproduced.
 
 ## Resource use
 

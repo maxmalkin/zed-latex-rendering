@@ -41,7 +41,10 @@ jobs:
           TECTONIC_TARGET: ${{ matrix.tectonic }}
           BUNDLE_PLATFORM: ${{ matrix.platform }}
         run: python package_bundle.py
+      - name: Register test computation kernel
+        run: python -m ipykernel install --user --name zedtex-test
       - name: Test packaged renderer
+        timeout-minutes: 15
         run: python check_bundle.py
       - uses: actions/upload-artifact@v4
         with:

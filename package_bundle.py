@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import shutil
+import sys
 import tarfile
 import tempfile
 from urllib.request import urlopen
@@ -25,4 +26,5 @@ with tempfile.TemporaryDirectory() as temporary:
             (destination / "tectonic").write_bytes(bundle.extractfile(member).read())
             (destination / "tectonic").chmod(0o755)
 shutil.copy("LICENSE", destination / "LICENSE")
+shutil.copytree(Path(sys.prefix) / "share/jupyter/nbconvert", destination / "_internal/share/jupyter/nbconvert", dirs_exist_ok=True)
 shutil.make_archive(str(Path("dist") / ("latex-rendering-" + os.environ["BUNDLE_PLATFORM"])), "zip", destination)
