@@ -18,7 +18,7 @@ Open a saved document, press **Ctrl+Shift+P**, run **editor: toggle code actions
 
 - **LaTeX: build and open preview** — TeX or Markdown. Save to update it.
 - **LaTeX: insert Jupyter rendering helper** — run the inserted Python cell, then use `tex(r"x^2")`.
-- **Notebook: run all cells and export to HTML/PDF** — open a saved `.ipynb` as JSON. Export runs the notebook’s installed Jupyter kernel and includes fresh outputs.
+- **Notebook: run all cells and export to HTML/PDF** — open a saved `.ipynb` or Python notebook script. Export runs the notebook’s installed Jupyter kernel and includes fresh outputs.
 
 For a shorter palette search, add this to your Zed settings (merge with existing aliases):
 
@@ -28,9 +28,9 @@ For a shorter palette search, add this to your Zed settings (merge with existing
 }
 ```
 
-Then use **Ctrl+Shift+P → `zedtex` → Enter** to open the action menu. This is a palette alias; Zed's extension API does not expose standalone palette commands.
+Then use **Ctrl+Shift+P → `zedtex` → Enter** to open the action menu. The palette result is still named **editor: toggle code actions**; the LaTeX or Notebook choices appear after Enter, depending on the file. Zed's extension API does not expose standalone palette commands.
 
-If the menu is empty after updating a dev extension, focus the original source file and run **editor: restart language server** from the palette, then retry once the renderer has started.
+If nothing opens after installing or reloading the extension, click another line in the original source file to refresh Zed's actions, then retry. If necessary, run **editor: restart language server** and wait for startup before moving the cursor. `.ipynb` files should show **Jupyter Notebook** in the status bar; **JSON** also works. Reload the extension if they still show **Unknown**.
 
 For **Markdown**, the action opens a generated `preview.md` tab. Press **Ctrl+Shift+V in that tab** to see the rendered equations. Run the action once for each source document; subsequent saves refresh its generated preview.
 
