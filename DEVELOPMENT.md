@@ -44,7 +44,13 @@ For a saved `.ipynb`, use **Notebook: run all cells and export to HTML/PDF**. Ze
 
 Python `# %%` scripts also execute before export. Notebook dependencies must be installed in the selected Jupyter kernel; the renderer does not supply your computation environment. The developer CLI supports `--no-execute` to export saved outputs. HTML embeds rendered equations; PDF is generated from the same static HTML. Interactive widgets are not reproduced.
 
+PDF export reuses Zed's shared Node runtime rather than downloading another copy inside ZedTeX. Chrome/Edge is used when available; the fallback browser downloads automatically into ZedTeX's user cache and is reused across renderer updates. No manual Node installation is needed when Zed manages its runtime normally. Standalone CLI PDF exports need Node.js 20+ on `PATH`, or an explicit executable path in `PLAYWRIGHT_NODEJS_PATH`. TeX/Markdown previews and HTML exports do not require Node.
+
 ## Resource use
+
+Renderer 0.1.4 downloads are approximately 57 MiB on Windows x64, 69 MiB on Linux x64, 63 MiB on Apple Silicon, and 65 MiB on Intel macOS. The bundles exclude the duplicate Node executable and unused Jedi completion, ipykernel, and Tk components. Release ZIPs use maximum standard DEFLATE compression.
+
+These sizes exclude Zed's shared Node runtime, TeX package caches, and any fallback browser download. Zed can download Node if it is not already available. Notebook code still runs in the user's registered kernel; removing ipykernel from the renderer does not remove notebook execution support.
 
 Math compiles only missing equations in batches and reuses a bounded disk cache. Cache hits read each PNG once; eviction runs only after new images are written. Repeated equations and local images are encoded once per Markdown conversion. Documents without equations skip TeX dependency scanning. Unchanged TeX inputs skip compilation. After a TeX rebuild, unchanged page objects reuse their PNGs; shared font or resource changes conservatively invalidate affected pages. Rasterization processes one page at a time. Limits: three-minute compilation, 8-MB compiler log, 100-MB PDF, 200 preview pages, 16 million raster pixels per document page, one million pixels per equation, and 64 MiB / 4,096 entries in each source directory's math cache.
 
@@ -74,9 +80,9 @@ Then select the local clone from Zed’s **Install Dev Extension** dialog. If in
 
 To update a dev install, pull the repository and select it again with **Install Dev Extension**. Run the preview action again to refresh older generated files.
 
-Run `python -m unittest -v test_regressions` for the 45 fast regressions covering embedded PNG/SVG transport, reference deduplication, escaped paths, Markdown preservation, source cleanliness, cache limits and reuse, concurrent writes, preview/export isolation, notebook recognition, code actions, save coalescing, and opening errors. These run on Linux, Windows, and macOS for pushes and pull requests.
+Run `python -m unittest -v test_regressions` for the 50 fast regressions covering embedded PNG/SVG transport, reference deduplication, escaped paths, Markdown preservation, source cleanliness, cache limits and reuse, concurrent writes, preview/export isolation, shared Node selection, notebook recognition, code actions, save coalescing, and opening errors. These run on Linux, Windows, and macOS for pushes and pull requests.
 
-`python check.py` exercises real local TeX packages, changed-page/equation reuse, unchanged-file timestamps, failure retention, and executed notebook HTML/PDF exports. It needs Tectonic and a registered Python Jupyter kernel. Every renderer release runs both suites plus `python check_bundle.py`, which tests the frozen executable, LSP previews, and subprocess notebook exports through LSP, on all four supported platform targets. The workflow publishes only after every target passes.
+`python check.py` exercises real local TeX packages, changed-page/equation reuse, unchanged-file timestamps, failure retention, and executed notebook HTML/PDF exports. It needs Tectonic and a registered Python Jupyter kernel. Every renderer release runs both suites plus `python check_bundle.py`, which tests the frozen executable, LSP previews, and subprocess notebook exports through LSP, on all four supported platform targets. Bundle checks verify PDF export with both shared-runtime and standalone Node paths, and reject accidentally bundled Node, Jedi, ipykernel, or Tk components. The workflow publishes only after every target passes.
 
 `cargo build --release --target wasm32-wasip2` builds the Zed extension. Native server bundles are built separately for each supported OS/architecture, then downloaded by the extension; they are not bundled into the extension registry archive.
 
