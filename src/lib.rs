@@ -23,7 +23,7 @@ impl zed::Extension for LatexRendering {
             Architecture::Aarch64 => "aarch64",
             _ => return Err("ZedTeX requires a 64-bit platform".into()),
         };
-        let directory = "backend-v0.1.2";
+        let directory = "backend-v0.1.3";
         let executable = format!(
             "{directory}/latex-rendering{}",
             if os == Os::Windows { ".exe" } else { "" }
