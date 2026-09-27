@@ -27,4 +27,13 @@ with tempfile.TemporaryDirectory() as temporary:
             (destination / "tectonic").chmod(0o755)
 shutil.copy("LICENSE", destination / "LICENSE")
 shutil.copytree(Path(sys.prefix) / "share/jupyter/nbconvert", destination / "_internal/share/jupyter/nbconvert", dirs_exist_ok=True)
-shutil.make_archive(str(Path("dist") / ("latex-rendering-" + os.environ["BUNDLE_PLATFORM"])), "zip", destination)
+# The extension supplies Zed's shared Node runtime to Playwright.
+for name in ("node", "node.exe"):
+    (destination / "_internal/playwright/driver" / name).unlink(missing_ok=True)
+archive = Path("dist") / ("latex-rendering-" + os.environ["BUNDLE_PLATFORM"] + ".zip")
+with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
+    for path in sorted(destination.rglob("*")):
+        if path.is_file():
+            bundle.write(path, path.relative_to(destination))
+print(f"Bundle: {archive.stat().st_size:,} bytes compressed; "
+      f"{sum(path.stat().st_size for path in destination.rglob('*') if path.is_file()):,} bytes unpacked.")

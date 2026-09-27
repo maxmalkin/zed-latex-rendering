@@ -1,9 +1,11 @@
 """Check the actual frozen executable, including the LSP wire protocol."""
 import json
 import base64
+import os
 import re
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 from threading import Timer
@@ -11,6 +13,16 @@ from threading import Timer
 from zed_latex import output_directory
 
 binary = Path("dist/latex-rendering/latex-rendering" + (".exe" if sys.platform == "win32" else "")).resolve()
+# Guard against accidentally shipping a second Node runtime or interactive tools.
+internal = binary.parent / "_internal"
+for unused in ("playwright/driver/node", "playwright/driver/node.exe", "jedi", "_tcl_data", "_tk_data"):
+    assert not (internal / unused).exists(), f"Unused runtime data was bundled: {unused}"
+from PyInstaller.archive.readers import CArchiveReader
+modules = CArchiveReader(str(binary)).open_embedded_archive("PYZ.pyz").toc
+for unused in ("jedi", "ipykernel", "tkinter"):
+    assert not any(name == unused or name.startswith(unused + ".") for name in modules), f"Unused module bundled: {unused}"
+node = shutil.which("node")
+assert node, "Bundle checks require Node.js 20+ (Zed supplies its shared runtime in normal use)"
 examples = Path("examples").resolve()
 subprocess.run([binary, "preview", examples / "paper.tex"], check=True, timeout=180)
 subprocess.run([binary, "preview", examples / "notes.md"], check=True, timeout=180)
@@ -31,13 +43,18 @@ with tempfile.TemporaryDirectory() as temporary:
     ]}))
     original = path.read_bytes()
     for kind in ("html", "pdf"):
-        subprocess.run([binary, "export", path, "--to", kind], check=True, timeout=360)
+        # Exercise standalone PATH resolution with no Zed-provided override.
+        env = {key: value for key, value in os.environ.items() if key != "PLAYWRIGHT_NODEJS_PATH"}
+        subprocess.run([binary, "export", path, "--to", kind], env=env, check=True, timeout=360)
     output = output_directory(path)
     assert "fresh-bundle-output" in (output / "test.html").read_text(encoding="utf-8")
     assert (output / "test.pdf").read_bytes().startswith(b"%PDF")
     assert path.read_bytes() == original
     assert list(path.parent.iterdir()) == [path], "Renderer left intermediate files beside the source"
-process = subprocess.Popen([binary, "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+# Exercise the same explicit Node path that the extension supplies, including
+# inheritance by the separate notebook-export process.
+process = subprocess.Popen([binary, "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                           env={**os.environ, "PLAYWRIGHT_NODEJS_PATH": node})
 deadline = Timer(120, process.kill)
 deadline.start()
 def send(message):

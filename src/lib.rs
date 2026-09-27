@@ -55,7 +55,11 @@ impl zed::Extension for LatexRendering {
         Ok(zed::Command {
             command: path.to_string_lossy().into_owned(),
             args: vec!["serve".into()],
-            env: vec![],
+            // Share Zed's Node runtime instead of shipping another copy for PDF export.
+            // A failed Node setup must not prevent TeX/Markdown previews or HTML export.
+            env: zed::node_binary_path()
+                .map(|node| vec![("PLAYWRIGHT_NODEJS_PATH".into(), node)])
+                .unwrap_or_default(),
         })
     }
 }

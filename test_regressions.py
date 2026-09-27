@@ -508,6 +508,51 @@ class SaveAndOpenRegressions(unittest.IsolatedAsyncioTestCase):
             self.assertIn("kernel failed", message.call_args.args[0].message)
 
 
+class PdfRuntimeRegressions(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="zedtex-node-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.node = self.root / "shared node.exe"
+        self.node.write_bytes(b"fixture")
+        self.addCleanup(patch.stopall)
+        patch.dict(os.environ, {}, clear=False).start()
+        os.environ.pop("PLAYWRIGHT_NODEJS_PATH", None)
+        self.driver = patch("playwright._impl._driver.compute_driver_executable",
+                            return_value=(str(self.root / "missing-node"), "cli.js")).start()
+
+    def test_shared_node_is_used_without_changing_its_permissions(self):
+        os.environ["PLAYWRIGHT_NODEJS_PATH"] = str(self.node)
+        self.driver.return_value = (str(self.node), "cli.js")
+        with patch.object(Path, "chmod", side_effect=AssertionError("Shared runtime was modified")), \
+                patch.object(renderer.shutil, "which") as which:
+            self.assertEqual(renderer.pdf_driver(), (str(self.node), "cli.js"))
+            which.assert_not_called()
+
+    def test_standalone_cli_finds_node_on_path(self):
+        with patch.object(renderer.shutil, "which", return_value=str(self.node)):
+            self.assertEqual(renderer.pdf_driver(), (str(self.node), "cli.js"))
+        self.assertEqual(os.environ["PLAYWRIGHT_NODEJS_PATH"], str(self.node))
+
+    def test_source_install_can_use_playwrights_existing_node(self):
+        self.driver.return_value = (str(self.node), "cli.js")
+        with patch.object(renderer.shutil, "which") as which:
+            self.assertEqual(renderer.pdf_driver(), (str(self.node), "cli.js"))
+            which.assert_not_called()
+
+    def test_missing_node_has_an_actionable_error(self):
+        with patch.object(renderer.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "Reload ZedTeX"):
+                renderer.pdf_driver()
+
+    def test_invalid_explicit_node_is_not_silently_overridden(self):
+        os.environ["PLAYWRIGHT_NODEJS_PATH"] = str(self.root / "missing-node")
+        with patch.object(renderer.shutil, "which") as which:
+            with self.assertRaisesRegex(RuntimeError, "PLAYWRIGHT_NODEJS_PATH"):
+                renderer.pdf_driver()
+            which.assert_not_called()
+
+
 class ExportProcessRegressions(unittest.TestCase):
     def test_source_and_frozen_commands_execute_notebooks(self):
         source = Path(__file__).resolve().with_name("example.ipynb")

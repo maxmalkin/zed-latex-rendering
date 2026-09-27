@@ -475,12 +475,10 @@ def export_notebook(source, kind, *, execute=True):
     write_changed(output / (source.stem + ".rendered.ipynb"), nbformat.writes(notebook))
     if kind == "pdf":
         from playwright.sync_api import sync_playwright, Error as BrowserError
-        from playwright._impl._driver import compute_driver_executable, get_driver_env
-        # Keep the optional browser in the extension's directory, never a global install.
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(sys.executable).parent / "browser-cache")
-        node, cli = compute_driver_executable()
-        if sys.platform != "win32":
-            Path(node).chmod(Path(node).stat().st_mode | 0o111)
+        from playwright._impl._driver import get_driver_env
+        # Reuse browser downloads across renderer updates, outside the project.
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(cache_directory() / "browsers")
+        node, cli = pdf_driver()
         with sync_playwright() as playwright:
             try:
                 browser = playwright.chromium.launch(channel="msedge" if sys.platform == "win32" else "chrome")
@@ -494,6 +492,20 @@ def export_notebook(source, kind, *, execute=True):
             return export_pdf_with_browser(browser, html_path)
     print(html_path, file=sys.stderr, flush=True)
     return html_path
+
+
+def pdf_driver():
+    from playwright._impl._driver import compute_driver_executable
+    node, cli = compute_driver_executable()
+    if not os.environ.get("PLAYWRIGHT_NODEJS_PATH") and not Path(node).is_file():
+        # Zed supplies this variable. Standalone CLI users can use Node on PATH.
+        node = shutil.which("node")
+        if node:
+            os.environ["PLAYWRIGHT_NODEJS_PATH"] = node
+    if not node or not Path(node).is_file():
+        raise RuntimeError("PDF export needs Node.js 20 or newer. Reload ZedTeX to use Zed's shared runtime, "
+                           "or set PLAYWRIGHT_NODEJS_PATH to a Node executable.")
+    return node, cli
 
 
 def export_pdf_with_browser(browser, html_path):
